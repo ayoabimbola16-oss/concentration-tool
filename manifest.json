@@ -1,0 +1,29 @@
+{
+  "name": "PlanTrack System",
+  "short_name": "PlanTrack System",
+  "description": "Personal alarm, timetable, file manager and activity planner",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0c0e14",
+  "theme_color": "#f0c040",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "WhatsApp Image 2026-04-07 at 21.19.20.jpeg",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "WhatsApp Image 2026-04-07 at 20.53.13.jpeg",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "shortcuts": [
+    { "name": "Alarms",  "url": "./index.html", "description": "View alarms" },
+    { "name": "Plans",   "url": "./index.html", "description": "View plans" }
+  ]
+}
