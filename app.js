@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  app.js  —  ABIMZZ Concentration Tool
+//  app.js  —  PlanTrack Concentration Tool
 // ═══════════════════════════════════════════════════════════════
 
 'use strict';

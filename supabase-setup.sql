@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
---  ABIMZZ Concentration Tool — Supabase Database Setup
+--  PlanTrack Concentration Tool — Supabase Database Setup
 --  Run ALL of this in: Supabase Dashboard → SQL Editor → New Query
 -- ═══════════════════════════════════════════════════════════════════
 
