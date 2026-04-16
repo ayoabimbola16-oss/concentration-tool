@@ -1,6 +1,6 @@
 {
-  "name": "PlanTrack System",
-  "short_name": "PlanTrack System",
+  "name": "PlanTrack Concentration Tool",
+  "short_name": "PlanTrack",
   "description": "Personal alarm, timetable, file manager and activity planner",
   "start_url": "./index.html",
   "display": "standalone",
@@ -15,7 +15,7 @@
       "purpose": "any maskable"
     },
     {
-      "src": "WhatsApp Image 2026-04-07 at 20.53.13.jpeg",
+      "src": "WhatsApp Image 2026-04-07 at 21.19.20.jpeg",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
@@ -23,7 +23,7 @@
   ],
   "categories": ["productivity", "utilities"],
   "shortcuts": [
-    { "name": "Alarms",  "url": "./index.html", "description": "View alarms" },
-    { "name": "Plans",   "url": "./index.html", "description": "View plans" }
+    { "name": "Alarms", "url": "./index.html", "description": "View alarms" },
+    { "name": "Plans",  "url": "./index.html", "description": "View plans" }
   ]
 }
