@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="PlanTrack"/>
-  <link rel="apple-touch-icon" href="WhatsApp Image 2026-04-07 at 21.19.20.jpeg"/>
+  <link rel="apple-touch-icon" href="WhatsApp Image 2026-04-07 at 20.53.13.jpeg"/>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 </head>
@@ -23,7 +23,7 @@
     <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
   </div>
   <div class="auth-box">
-    <div class="auth-logo">⚡ PlanTrack</div>
+    <div class="auth-logo"><img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" class="logo-img" alt="Logo"/> PlanTrack</div>
     <div class="auth-brand-line">CONCENTRATION TOOL</div>
     <p class="auth-welcome" id="auth-welcome-text">Welcome back — sign in to continue</p>
 
@@ -81,11 +81,11 @@
   <header class="topbar">
     <div class="tb-left">
       <button class="hamburger" onclick="toggleSidebar()" type="button"><i class="fa fa-bars"></i></button>
-      <div class="tb-logo">⚡ PlanTrack</div>
+      <div class="tb-logo"><img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" class="tb-logo-img" alt="Logo"/> PlanTrack</div>
     </div>
     <div class="tb-right">
       <button class="profile-btn" onclick="showSection('profile')" type="button" title="My Profile">
-        <i class="fa fa-user-circle"></i>
+        <div class="tb-avatar" id="topbar-avatar-display"></div>
         <span id="disp-user" class="profile-name"></span>
       </button>
       <button class="logout-btn" onclick="logout()" type="button"><i class="fa fa-sign-out-alt"></i><span class="logout-text">Logout</span></button>
@@ -114,6 +114,9 @@
       </button>
       <button class="nav-btn" id="nav-profile" onclick="showSection('profile')" type="button">
         <i class="fa fa-user"></i><span>My Profile</span>
+      </button>
+      <button class="nav-btn" id="install-app-btn" onclick="installPWA()" type="button" style="display:none">
+        <i class="fa fa-download"></i><span style="color:var(--accent)">Install App</span>
       </button>
       <div class="sidebar-footer">ABIMZZ &copy; 2026</div>
     </nav>
@@ -220,11 +223,18 @@
           </div>
         </div>
         <div class="profile-card">
-          <div class="profile-avatar" id="profile-avatar-display">A</div>
+          <div class="profile-avatar-wrap">
+            <div class="profile-avatar" id="profile-avatar-display">A</div>
+            <label class="avatar-upload-btn" title="Upload Picture">
+              <i class="fa fa-camera"></i>
+              <input type="file" id="avatar-input" accept="image/*" style="display:none" onchange="uploadAvatar(event)"/>
+            </label>
+          </div>
           <div class="profile-info">
             <div class="profile-username" id="profile-username-display"></div>
             <div class="profile-email" id="profile-email-display"></div>
             <div class="profile-joined" id="profile-joined-display"></div>
+            <button class="btn-outline-sm" style="margin-top:10px" onclick="openEditProfileModal()" type="button"><i class="fa fa-edit"></i> Edit Username</button>
           </div>
         </div>
 
@@ -497,13 +507,45 @@
   </div>
 </div>
 
+<!-- EDIT PROFILE MODAL -->
+<div id="modal-edit-profile" class="overlay" style="display:none">
+  <div class="modal modal-sm">
+    <div class="mh">
+      <h2><i class="fa fa-user-edit"></i> Edit Profile</h2>
+      <button class="mclose" onclick="closeModal('modal-edit-profile')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb">
+      <div class="fg">
+        <label>New Username</label>
+        <input type="text" id="edit-username-input" placeholder="Enter new username"/>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn-cancel" onclick="closeModal('modal-edit-profile')" type="button">Cancel</button>
+      <button class="btn-save" onclick="saveProfile()" type="button"><i class="fa fa-save"></i> Save Changes</button>
+    </div>
+  </div>
+</div>
+
 <!-- ALARM RINGING -->
 <div id="alarm-ring" style="display:none">
   <div class="ring-box">
     <div class="ring-anim">⏰</div>
     <h2 id="ring-label">Alarm!</h2>
     <p id="ring-time"></p>
-    <button class="btn-save" onclick="dismissAlarm()" type="button"><i class="fa fa-stop-circle"></i> Dismiss</button>
+    <div class="ring-actions" style="display:flex;gap:12px;justify-content:center;margin-top:20px;">
+      <button class="btn-cancel" onclick="snoozeAlarm()" type="button"><i class="fa fa-bed"></i> Snooze</button>
+      <button class="btn-save" onclick="dismissAlarm()" type="button"><i class="fa fa-stop-circle"></i> Dismiss</button>
+    </div>
+  </div>
+</div>
+
+<!-- ORIENTATION OVERLAY -->
+<div id="orientation-overlay">
+  <div class="orientation-box">
+    <i class="fa fa-mobile-alt fa-4x" style="animation: tiltMobile 2s infinite ease-in-out; color: var(--accent);"></i>
+    <h2 style="margin-top:20px;">Portrait Mode Required</h2>
+    <p style="color:var(--text2);margin-top:10px;">Please rotate your device back to portrait mode to continue using PlanTrack.</p>
   </div>
 </div>
 

@@ -2,8 +2,8 @@
 //  sw.js  —  PlanTrack System Service Worker
 // ================================================================
 
-const CACHE_NAME = 'plantrack-v2';
-const DATA_CACHE = 'plantrack-data-v2';
+const CACHE_NAME = 'plantrack-v5';
+const DATA_CACHE = 'plantrack-data-v5';
 
 const FILES_TO_CACHE = [
   './',
@@ -14,7 +14,6 @@ const FILES_TO_CACHE = [
   './offline.js',
   './manifest.json',
   './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
-  './WhatsApp Image 2026-04-07 at 21.19.20.jpeg',
   'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap',
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
@@ -110,6 +109,17 @@ async function checkAlarms() {
       const fireKey = `fired-${alarm.id}-${todayStr}-${hhmm}`;
       const already = await loadData(fireKey);
       if (already) continue;
+
+      // Bug Fix: Check if app is open and focused in the foreground
+      const clientsList = await self.clients.matchAll({ type:'window', includeUncontrolled:true });
+      const isVisible   = clientsList.some(c => c.visibilityState === 'visible' && c.focused);
+      
+      if (isVisible) {
+        // App is open! Let app.js handle the ringing. Just mark as fired.
+        await saveData(fireKey, true);
+        continue;
+      }
+
       await saveData(fireKey, true);
       await showNotif(`⏰ ${alarm.label}`, `Your alarm is ringing! Time: ${fmt12(alarm.time)}`, `alarm-${alarm.id}`, true);
     }
@@ -139,8 +149,8 @@ async function checkPlanReminder() {
 async function showNotif(title, body, tag, requireInteraction) {
   return self.registration.showNotification(title, {
     body, icon:'./WhatsApp Image 2026-04-07 at 20.53.13.jpeg', badge:'./WhatsApp Image 2026-04-07 at 20.53.13.jpeg', tag,
-    requireInteraction,
-    vibrate: requireInteraction ? [300,100,300,100,300] : [200,100,200],
+    requireInteraction, renotify: requireInteraction,
+    vibrate: requireInteraction ? [500,200,500,200,500,200,500] : [200,100,200],
     actions: [{ action:'dismiss', title:'Dismiss' }, { action:'open', title:'Open App' }]
   });
 }

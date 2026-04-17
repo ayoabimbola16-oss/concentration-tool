@@ -84,6 +84,12 @@ body {
   font-family:'Playfair Display',serif;
   font-size:2.2rem; font-weight:900;
   color:var(--accent); text-align:center; letter-spacing:3px;
+  display:flex; align-items:center; justify-content:center; gap:12px;
+}
+.logo-img {
+  width:44px; height:44px; border-radius:10px;
+  box-shadow:0 0 15px rgba(240,192,64,0.3);
+  object-fit:cover;
 }
 .auth-brand-line {
   text-align:center; font-size:.7rem; font-weight:600;
@@ -185,7 +191,11 @@ body {
 .tb-logo {
   font-family:'Playfair Display',serif; font-size:1.2rem;
   font-weight:900; color:var(--accent); letter-spacing:2px;
-  white-space:nowrap;
+  white-space:nowrap; display:flex; align-items:center; gap:8px;
+}
+.tb-logo-img {
+  width:28px; height:28px; border-radius:6px;
+  object-fit:cover;
 }
 
 .profile-btn {
@@ -198,8 +208,19 @@ body {
   max-width:160px; overflow:hidden;
 }
 .profile-btn:hover { border-color:var(--accent); color:var(--accent); }
-.profile-btn i { color:var(--accent); font-size:1rem; flex-shrink:0; }
+.profile-btn:hover .tb-avatar { border-color:var(--accent); box-shadow:0 0 8px rgba(240,192,64,0.4); }
 .profile-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Topbar avatar mini-circle */
+.tb-avatar {
+  width:30px; height:30px; border-radius:50%; flex-shrink:0;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  border:2px solid var(--border2);
+  display:flex; align-items:center; justify-content:center;
+  font-family:'Playfair Display',serif;
+  font-size:.95rem; font-weight:900; color:#000;
+  overflow:hidden; transition:border-color .2s, box-shadow .2s;
+}
 
 .logout-btn {
   display:flex; align-items:center; gap:6px;
@@ -322,6 +343,55 @@ body {
   font-weight:700; color:var(--accent); line-height:1;
 }
 .alarm-label { font-weight:600; color:var(--text); margin:6px 0 2px; font-size:.92rem; }
+/* ── Live Countdown Bar ── */
+.alarm-countdown-bar {
+  display:none; /* shown by JS */
+  align-items:center; gap:7px;
+  margin:6px 0 2px;
+  padding:6px 12px;
+  border-radius:10px;
+  font-size:.82rem; font-weight:700; font-family:'DM Sans',sans-serif;
+  background:rgba(74,144,226,.1); border:1px solid rgba(74,144,226,.2);
+  color:var(--blue);
+  transition:background .4s, border-color .4s, color .4s;
+  animation:fadeUp .3s ease;
+}
+/* < 30 min — amber */
+.alarm-countdown-bar.countdown-soon {
+  background:rgba(240,192,64,.1); border-color:rgba(240,192,64,.3);
+  color:var(--accent);
+}
+/* < 5 min — red pulsing */
+.alarm-countdown-bar.countdown-urgent {
+  background:rgba(231,76,60,.12); border-color:rgba(231,76,60,.4);
+  color:var(--red);
+  animation:countdownPulse 1s ease-in-out infinite;
+}
+/* Ringing now */
+.alarm-countdown-bar.countdown-due {
+  background:rgba(231,76,60,.2); border-color:var(--red);
+  color:var(--red); font-size:.88rem;
+}
+@keyframes countdownPulse {
+  0%,100% { opacity:1; transform:scale(1); }
+  50%      { opacity:.75; transform:scale(1.01); }
+}
+.countdown-icon {
+  font-size:.8rem; flex-shrink:0;
+  animation:hourglassTilt 2s ease-in-out infinite;
+}
+@keyframes hourglassTilt {
+  0%,100% { transform:rotate(0deg); }
+  50%      { transform:rotate(180deg); }
+}
+.countdown-icon-ring {
+  animation:bellRing .4s ease-in-out infinite alternate !important;
+}
+@keyframes bellRing {
+  from { transform:rotate(-15deg); }
+  to   { transform:rotate(15deg); }
+}
+.countdown-text { letter-spacing:.3px; }
 .alarm-meta  { font-size:.78rem; color:var(--text2); display:flex; gap:10px; flex-wrap:wrap; margin-top:4px; }
 .alarm-meta span { display:flex; align-items:center; gap:4px; }
 .alarm-sound-tag {
@@ -600,6 +670,18 @@ body {
   display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
   gap:14px; margin-bottom:24px;
 }
+.profile-avatar-wrap {
+  position:relative;
+  display:inline-block;
+}
+.avatar-upload-btn {
+  position:absolute; bottom:0; right:0;
+  width:26px; height:26px; border-radius:50%;
+  background:var(--surface2); border:2px solid var(--surface);
+  color:var(--text); display:flex; align-items:center; justify-content:center;
+  cursor:pointer; font-size:.8rem; transition:all .2s;
+}
+.avatar-upload-btn:hover { background:var(--accent); color:#000; box-shadow:0 0 10px rgba(240,192,64,.4); }
 .profile-stat-card {
   background:var(--surface); border:1px solid var(--border);
   border-radius:var(--radius-lg); padding:20px 16px;
@@ -744,7 +826,7 @@ body {
   background:var(--surface2); border:1px solid var(--border2);
   border-radius:var(--radius); padding:14px 18px;
   color:var(--text); font-size:.88rem; font-weight:500;
-  box-shadow:var(--shadow); z-index:9000; max-width:300px;
+  box-shadow:var(--shadow); z-index:10000; max-width:300px;
   opacity:0; transform:translateY(20px);
   transition:all .3s ease; pointer-events:none;
 }
@@ -755,6 +837,21 @@ body {
 /* ════════════ ANIMATIONS ════════════ */
 @keyframes planPopupIn  { from{opacity:0;transform:translateX(60px)} to{opacity:1;transform:translateX(0)} }
 @keyframes planPopupOut { from{opacity:1;transform:translateX(0)} to{opacity:0;transform:translateX(60px)} }
+
+@keyframes tiltMobile { 0%,100%{transform:rotate(0deg)} 25%{transform:rotate(-15deg)} 75%{transform:rotate(15deg)} }
+
+/* ════════════ ORIENTATION OVERLAY ════════════ */
+#orientation-overlay {
+  display:none; position:fixed; inset:0;
+  background:var(--bg); z-index:99999;
+  align-items:center; justify-content:center;
+  text-align:center; padding:20px;
+}
+.orientation-box { max-width:80%; }
+@media screen and (orientation: landscape) and (max-height: 600px) {
+  #app, #auth-screen { display:none !important; }
+  #orientation-overlay { display:flex !important; }
+}
 
 /* ════════════ RESPONSIVE — MOBILE ════════════ */
 @media (max-width: 768px) {

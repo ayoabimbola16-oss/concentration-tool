@@ -30,6 +30,9 @@ let activityCounter         = 0;
 let planReminderInterval    = null;
 let ringActive              = false;
 let ringAlarmId             = null;
+let ringAlarmRepeat         = 'none';
+let countdownInterval       = null;
+
 
 // ── Built-in Sounds ──────────────────────────────────────────────
 const SOUNDS = [
@@ -86,9 +89,14 @@ function playSound(soundId, loop = false) {
     nodes.push(osc);
   }
 
+  let audioLoopTimeout = null;
   function pattern(fn) {
     fn();
-    if (loop && !stopped) setTimeout(() => { if (!stopped) pattern(fn); }, 3000);
+    if (loop && !stopped) {
+      audioLoopTimeout = setTimeout(() => { 
+        if (!stopped) pattern(fn); 
+      }, 3000);
+    }
   }
 
   function playPattern() {
@@ -111,7 +119,13 @@ function playSound(soundId, loop = false) {
   }
 
   pattern(playPattern);
-  ringAudio = { stop: () => { stopped = true; nodes.forEach(n => { try { n.stop(); } catch(e){} }); } };
+  ringAudio = { 
+    stop: () => { 
+      stopped = true; 
+      if (audioLoopTimeout) clearTimeout(audioLoopTimeout);
+      nodes.forEach(n => { try { n.stop(); } catch(e){} }); 
+    } 
+  };
 }
 
 function stopSound() {
@@ -226,7 +240,9 @@ function startVoice(targetId, statusId) {
   recognition = new SR();
   recognition.lang = 'en-US';
   recognition.interimResults = false;
-  const btn = document.querySelector(`[onclick*="${targetId}"]`);
+  
+  // Find button by targetId match in onclick OR specific data attribute
+  const btn = event?.currentTarget || document.querySelector(`[onclick*="${targetId}"]`);
   const statusEl = statusId ? document.getElementById(statusId) : null;
   if (btn) btn.classList.add('listening');
   if (statusEl) statusEl.textContent = '🎙️ Listening...';
@@ -398,8 +414,7 @@ async function initApp(user) {
   if (dispEl) dispEl.textContent = displayName;
 
   // Set profile avatar initial
-  const avatarEl = document.getElementById('profile-avatar-display');
-  if (avatarEl) avatarEl.textContent = displayName.charAt(0).toUpperCase();
+  renderAvatar();
 
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -407,8 +422,34 @@ async function initApp(user) {
   await loadUserSounds();
   showSection('alarms');
   startAlarmChecker();
+  startAlarmCountdown();
   buildSoundGrid();
   if (window.initSocial) window.initSocial();
+}
+
+function renderAvatar() {
+  const displayName = currentUserProfile?.username || currentUser?.email || 'U';
+  const initial = displayName.charAt(0).toUpperCase();
+
+  // Check DB first, then localStorage fallback
+  const localKey = currentUserId ? `avatar_${currentUserId}` : null;
+  const localUrl  = localKey ? localStorage.getItem(localKey) : null;
+  const avatarUrl = currentUserProfile?.avatar_url || localUrl;
+
+  // Helper to set any avatar element
+  function setAvatarEl(el) {
+    if (!el) return;
+    if (avatarUrl) {
+      el.innerHTML = `<img src="${avatarUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" alt="Avatar" onerror="this.parentElement.innerHTML='';this.parentElement.textContent='${initial}'">`;
+    } else {
+      el.innerHTML = '';
+      el.textContent = initial;
+    }
+  }
+
+  // Sync both avatar spots
+  setAvatarEl(document.getElementById('profile-avatar-display'));
+  setAvatarEl(document.getElementById('topbar-avatar-display'));
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -476,7 +517,7 @@ async function loadProfile() {
   if (usernameEl) usernameEl.textContent = profile.username || 'Unknown';
   if (emailEl)    emailEl.textContent    = profile.email || currentUser?.email || '';
   if (joinedEl)   joinedEl.textContent   = `Joined ${fmtDate(profile.created_at?.split('T')[0] || today())}`;
-  if (avatarEl)   avatarEl.textContent   = (profile.username||'U').charAt(0).toUpperCase();
+  renderAvatar();
 
   // Load stats
   const [alarms, timetables, folders, plans] = await Promise.all([
@@ -491,6 +532,89 @@ async function loadProfile() {
   setEl('stat-timetables', timetables.count);
   setEl('stat-folders',    folders.count);
   setEl('stat-plans',      plans.count);
+}
+
+function openEditProfileModal() {
+  const inp = document.getElementById('edit-username-input');
+  if (inp) inp.value = currentUserProfile?.username || '';
+  openModal('modal-edit-profile');
+}
+
+async function saveProfile() {
+  const val = document.getElementById('edit-username-input').value.trim();
+  if (!val) { toast('Username cannot be empty', 'error'); return; }
+  const { error } = await db.from('profiles').update({ username: val }).eq('id', currentUserId);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  currentUserProfile.username = val;
+  toast('Profile updated!', 'success');
+  closeModal('modal-edit-profile');
+  document.getElementById('disp-user').textContent = val;
+  loadProfile();
+}
+
+async function uploadAvatar(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { toast('Please select an image', 'error'); return; }
+  if (file.size > 5 * 1024 * 1024) { toast('Image too large. Maximum 5MB.', 'error'); return; }
+
+  toast('Uploading picture...', 'info');
+
+  // ── Step 1: Try to upload to Supabase Storage ──
+  const path = `${currentUserId}/avatar_${Date.now()}`;
+  const { error: upErr } = await db.storage.from(STORAGE_BUCKET).upload(path, file, { upsert: true });
+
+  if (upErr) {
+    // Storage upload failed — fall back to local base64 storage
+    console.warn('Storage upload failed, using local fallback:', upErr.message);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target.result;
+      const localKey = `avatar_${currentUserId}`;
+      try {
+        localStorage.setItem(localKey, dataUrl);
+        if (currentUserProfile) currentUserProfile.avatar_url = null; // clear so local is used
+        renderAvatar();
+        toast('Profile picture saved locally!', 'success');
+      } catch (storageErr) {
+        toast('Image too large to store locally. Try a smaller image.', 'error');
+      }
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+    return;
+  }
+
+  // ── Step 2: Get public URL ──
+  const { data: urlData } = db.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+  const publicUrl = urlData?.publicUrl;
+
+  if (!publicUrl) {
+    toast('Could not get image URL. Try again.', 'error');
+    event.target.value = '';
+    return;
+  }
+
+  // ── Step 3: Try to save URL to profiles table ──
+  const { error: dbErr } = await db.from('profiles').update({ avatar_url: publicUrl }).eq('id', currentUserId);
+
+  if (dbErr) {
+    // DB column missing or update failed — save to localStorage as fallback
+    console.warn('DB avatar save failed (column may be missing):', dbErr.message);
+    const localKey = `avatar_${currentUserId}`;
+    localStorage.setItem(localKey, publicUrl);
+    if (currentUserProfile) currentUserProfile.avatar_url = null; // ensure local key is used
+    renderAvatar();
+    toast('Profile picture saved!', 'success');
+  } else {
+    // Full success — save in memory and clear local cache
+    if (currentUserProfile) currentUserProfile.avatar_url = publicUrl;
+    localStorage.removeItem(`avatar_${currentUserId}`);
+    renderAvatar();
+    toast('Profile picture updated!', 'success');
+  }
+
+  event.target.value = '';
 }
 
 function openChangePasswordModal() {
@@ -696,7 +820,11 @@ function renderAlarms(alarms) {
         <span class="status-dot"></span>
         <span class="status-text">${a.is_active ? 'Active' : 'Disabled'}</span>
       </div>
-      <div class="alarm-time">${fmt12(a.time)}</div>
+      <div class="alarm-time" data-time="${a.time}" data-date="${a.date||''}" data-repeat="${a.repeat}" data-active="${a.is_active}">${fmt12(a.time)}</div>
+      <div class="alarm-countdown-bar" data-time="${a.time}" data-date="${a.date||''}" data-repeat="${a.repeat}" data-active="${a.is_active}">
+        <i class="fa fa-hourglass-half countdown-icon"></i>
+        <span class="countdown-text"></span>
+      </div>
       <div class="alarm-label">${escHtml(a.label)}</div>
       <div class="alarm-meta">
         ${a.date ? `<span><i class="fa fa-calendar"></i> ${fmtDate(a.date)}</span>` : ''}
@@ -708,9 +836,11 @@ function renderAlarms(alarms) {
           <div class="toggle-switch ${a.is_active?'on':''}"></div>
           <span class="toggle-label">${a.is_active ? 'ON' : 'OFF'}</span>
         </div>
-        <button class="icon-btn" onclick='openAlarmModal(${JSON.stringify(a)})' title="Edit" type="button"><i class="fa fa-edit"></i></button>
+        <button class="icon-btn edit-alarm" title="Edit" type="button"><i class="fa fa-edit"></i></button>
         <button class="icon-btn del" onclick="confirmDelete('alarm','${a.id}','${escHtml(a.label)}')" title="Delete" type="button"><i class="fa fa-trash"></i></button>
       </div>`;
+    
+    card.querySelector('.edit-alarm').addEventListener('click', () => openAlarmModal(a));
     grid.appendChild(card);
   });
 }
@@ -728,6 +858,90 @@ function startAlarmChecker() {
 
 function stopAlarmChecker() {
   if (alarmInterval) clearInterval(alarmInterval);
+}
+
+function startAlarmCountdown() {
+  if (countdownInterval) clearInterval(countdownInterval);
+  updateTimeLeft();
+  countdownInterval = setInterval(updateTimeLeft, 1000); // live every second
+}
+
+function getNextAlarmDate(time, date, repeat) {
+  const now = new Date();
+  const [h, m] = time.split(':').map(Number);
+  let alarmDate = new Date();
+  alarmDate.setHours(h, m, 0, 0);
+
+  if (repeat === 'none' && date) {
+    const d = new Date(date + 'T00:00:00');
+    alarmDate.setFullYear(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+
+  if (alarmDate < now && repeat !== 'none') {
+    alarmDate.setDate(alarmDate.getDate() + 1);
+  }
+
+  return alarmDate;
+}
+
+function updateTimeLeft() {
+  const bars = document.querySelectorAll('.alarm-countdown-bar');
+  const now = new Date();
+
+  bars.forEach(bar => {
+    const textEl = bar.querySelector('.countdown-text');
+    const iconEl = bar.querySelector('.countdown-icon');
+    if (!textEl) return;
+
+    const isActive = bar.getAttribute('data-active') === 'true';
+    if (!isActive) { bar.style.display = 'none'; return; }
+
+    const time   = bar.getAttribute('data-time');
+    const repeat = bar.getAttribute('data-repeat');
+    const date   = bar.getAttribute('data-date');
+    if (!time) return;
+
+    const alarmDate = getNextAlarmDate(time, date, repeat);
+
+    if (alarmDate < now) { bar.style.display = 'none'; return; }
+
+    const diff = Math.max(0, alarmDate.getTime() - now.getTime());
+    const totalSecs = Math.floor(diff / 1000);
+    const hrs  = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    const secs = totalSecs % 60;
+
+    let text;
+    if (totalSecs <= 0) {
+      text = '🔔 Ringing now!';
+    } else if (hrs > 0) {
+      text = `${hrs}h ${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s`;
+    } else if (mins > 0) {
+      text = `${mins}m ${String(secs).padStart(2,'0')}s`;
+    } else {
+      text = `${secs}s`;
+    }
+    textEl.textContent = text;
+
+    bar.classList.remove('countdown-soon', 'countdown-urgent', 'countdown-due');
+    if (totalSecs <= 0) {
+      bar.classList.add('countdown-due');
+    } else if (totalSecs < 300) {
+      bar.classList.add('countdown-urgent');
+    } else if (totalSecs < 1800) {
+      bar.classList.add('countdown-soon');
+    }
+
+    if (iconEl) {
+      if (totalSecs < 300) {
+        iconEl.className = 'fa fa-bell countdown-icon countdown-icon-ring';
+      } else {
+        iconEl.className = 'fa fa-hourglass-half countdown-icon';
+      }
+    }
+
+    bar.style.display = 'flex';
+  });
 }
 
 async function checkAlarms() {
@@ -758,7 +972,9 @@ async function checkAlarms() {
 }
 
 function ringAlarm(alarm) {
-  ringActive = true; ringAlarmId = alarm.id;
+  ringActive = true; 
+  ringAlarmId = alarm.id;
+  ringAlarmRepeat = alarm.repeat || 'none';
   document.getElementById('ring-label').textContent = alarm.label;
   document.getElementById('ring-time').textContent  = fmt12(alarm.time);
   document.getElementById('alarm-ring').style.display = 'flex';
@@ -767,17 +983,56 @@ function ringAlarm(alarm) {
 }
 
 function dismissAlarm() {
-  ringActive = false; ringAlarmId = null;
+  const activeId = ringAlarmId;
+  const repeat   = ringAlarmRepeat;
+  
+  ringActive = false; 
+  ringAlarmId = null; 
+  ringAlarmRepeat = 'none';
+  
   stopSound();
   document.getElementById('alarm-ring').style.display = 'none';
+  
   if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({ type:'CLEAR_ALARMS' });
   }
+  
   if ('Notification' in window) {
     navigator.serviceWorker.getRegistrations().then(regs => {
       regs.forEach(reg => reg.getNotifications().then(notifs => notifs.forEach(n => n.close())));
     });
   }
+  
+  // Bug fix: only disable if it's a one-time alarm
+  if (activeId && repeat === 'none') {
+    toggleAlarm(activeId, false);
+  }
+}
+
+async function snoozeAlarm() {
+  const activeId = ringAlarmId;
+  const label = document.getElementById('ring-label').textContent;
+  
+  if (!activeId) { dismissAlarm(); return; }
+  
+  const now = new Date();
+  now.setMinutes(now.getMinutes() + 10);
+  const tm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  
+  const payload = { 
+    user_id: currentUserId, 
+    time: tm, 
+    date: now.toISOString().split('T')[0], 
+    label: `[Snoozed] ${label}`, 
+    repeat: 'none', 
+    sound: selectedSound || 'beep', 
+    is_active: true 
+  };
+  
+  await db.from('alarms').insert(payload);
+  toast('Alarm snoozed for 10 minutes!', 'info');
+  loadAlarms();
+  dismissAlarm();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -963,15 +1218,21 @@ async function loadFolders() {
     const { count } = await db.from('files').select('*',{count:'exact',head:true}).eq('folder_id',f.id).eq('user_id',currentUserId);
     const card = document.createElement('div');
     card.className = 'folder-card';
+    card.dataset.id = f.id;
     card.innerHTML = `
       <div class="folder-card-actions">
-        <button class="icon-btn" onclick="event.stopPropagation();openFolderModal(${JSON.stringify(f).replace(/"/g,'&quot;')})" title="Rename" type="button"><i class="fa fa-edit"></i></button>
+        <button class="icon-btn edit-folder" title="Rename" type="button"><i class="fa fa-edit"></i></button>
         <button class="icon-btn del" onclick="event.stopPropagation();confirmDelete('folder','${f.id}','${escHtml(f.name)}')" title="Delete" type="button"><i class="fa fa-trash"></i></button>
       </div>
       <i class="fa fa-folder"></i>
       <div class="fc-name">${escHtml(f.name)}</div>
       <div class="fc-count">${count||0} file${count===1?'':'s'}</div>`;
+    
     card.addEventListener('click', () => openFolder(f));
+    card.querySelector('.edit-folder').addEventListener('click', (e) => {
+      e.stopPropagation();
+      openFolderModal(f);
+    });
     grid.appendChild(card);
   }
 }
@@ -1037,12 +1298,17 @@ async function loadSubFolders(parentId) {
     card.className = 'folder-card';
     card.innerHTML = `
       <div class="folder-card-actions">
-        <button class="icon-btn" onclick="event.stopPropagation();openFolderModal(${JSON.stringify(f).replace(/"/g,'&quot;')})" title="Rename" type="button"><i class="fa fa-edit"></i></button>
+        <button class="icon-btn edit-folder" title="Rename" type="button"><i class="fa fa-edit"></i></button>
         <button class="icon-btn del" onclick="event.stopPropagation();confirmDelete('folder','${f.id}','${escHtml(f.name)}')" title="Delete" type="button"><i class="fa fa-trash"></i></button>
       </div>
       <i class="fa fa-folder"></i>
       <div class="fc-name">${escHtml(f.name)}</div>`;
+    
     card.addEventListener('click', () => openSubFolder(f));
+    card.querySelector('.edit-folder').addEventListener('click', (e) => {
+      e.stopPropagation();
+      openFolderModal(f);
+    });
     subGrid.appendChild(card);
   });
 }
@@ -1177,7 +1443,7 @@ function renderPlans(plans) {
     const card = document.createElement('div');
     card.className = 'plan-card';
     card.innerHTML = `
-      <div class="plan-header" onclick="togglePlanBody('pb-${plan.id}')">
+      <div class="plan-header" id="ph-${plan.id}">
         <div class="plan-header-left">
           <div class="plan-title-text">${escHtml(plan.title)}</div>
           <span class="plan-duration-pill pill-${plan.duration}">${getDurationLabel(plan.duration)}</span>
@@ -1185,7 +1451,7 @@ function renderPlans(plans) {
         <div style="display:flex;align-items:center;gap:10px">
           <span style="font-size:.78rem;color:var(--text2)">${fmtDate(plan.start_date)} – ${fmtDate(plan.end_date)}</span>
           <div class="plan-card-actions" onclick="event.stopPropagation()">
-            <button class="icon-btn" onclick="openPlanModal(${JSON.stringify(plan).replace(/"/g,'&quot;')})" type="button"><i class="fa fa-edit"></i></button>
+            <button class="icon-btn edit-plan" type="button"><i class="fa fa-edit"></i></button>
             <button class="icon-btn del" onclick="confirmDelete('plan','${plan.id}','${escHtml(plan.title)}')" type="button"><i class="fa fa-trash"></i></button>
           </div>
           <i class="fa fa-chevron-down" style="color:var(--text3);font-size:.8rem"></i>
@@ -1218,6 +1484,11 @@ function renderPlans(plans) {
             </div>`:''}
         </div>
       </div>`;
+    card.querySelector(`#ph-${plan.id}`).addEventListener('click', () => togglePlanBody(`pb-${plan.id}`));
+    card.querySelector('.edit-plan').addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPlanModal(plan);
+    });
     list.appendChild(card);
   });
 }
@@ -1284,7 +1555,7 @@ function showPlanReminderNotification(plan, incomplete) {
       ? `Pending: ${incomplete.map(a=>a.text).join(', ')}`
       : `You have ${incomplete.length} pending activities.`;
     const notif = new Notification(`📋 ${plan.title} — Reminder`, {
-      body, icon:'./WhatsApp Image 2026-04-07 at 21.19.20.jpeg', tag:`plan-reminder-${plan.id}`, requireInteraction:false,
+      body, icon:'./WhatsApp Image 2026-04-07 at 20.53.13.jpeg', tag:`plan-reminder-${plan.id}`, requireInteraction:false,
     });
     notif.onclick = () => { window.focus(); showSection('plans'); notif.close(); };
     setTimeout(() => notif.close(), 8000);

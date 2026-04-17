@@ -2,23 +2,26 @@
   "name": "PlanTrack Concentration Tool",
   "short_name": "PlanTrack",
   "description": "Personal alarm, timetable, file manager and activity planner",
+  "id": "/",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#0c0e14",
   "theme_color": "#f0c040",
-  "orientation": "any",
+  "orientation": "portrait",
+  "prefer_related_applications": false,
   "icons": [
     {
-      "src": "WhatsApp Image 2026-04-07 at 21.19.20.jpeg",
+      "src": "WhatsApp Image 2026-04-07 at 20.53.13.jpeg",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "WhatsApp Image 2026-04-07 at 21.19.20.jpeg",
+      "src": "WhatsApp Image 2026-04-07 at 20.53.13.jpeg",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "maskable"
     }
   ],
   "categories": ["productivity", "utilities"],
