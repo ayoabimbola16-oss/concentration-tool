@@ -34,8 +34,22 @@ self.addEventListener('activate', event => {
         keys.filter(k => k !== CACHE_NAME && k !== DATA_CACHE).map(k => caches.delete(k))
       ))
       .then(() => self.clients.claim())
+      .then(() => cleanupOldFiredMarkers())
   );
 });
+
+async function cleanupOldFiredMarkers() {
+  const cache = await caches.open(DATA_CACHE);
+  const keys  = await cache.keys();
+  const now   = Date.now();
+  for (const req of keys) {
+    if (req.url.includes('fired-')) {
+      // Check if old (e.g. from yesterday)
+      // For simplicity, we just clear fired markers on activation
+      await cache.delete(req);
+    }
+  }
+}
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
@@ -58,10 +72,69 @@ self.addEventListener('fetch', event => {
 
 self.addEventListener('message', async event => {
   const { type, data } = event.data || {};
-  if (type === 'SAVE_ALARMS') await saveData('alarms', data);
+  if (type === 'SAVE_ALARMS') {
+    await saveData('alarms', data);
+    await scheduleNextAlarms(data);
+  }
   if (type === 'SAVE_PLANS')  await saveData('plans',  data);
   if (type === 'CHECK_NOW')   await checkAlarms();
+  if (type === 'FIRE_NOTIF')  await showNotif(`⏰ ${data.label}`, `Your alarm is ringing! Time: ${fmt12(data.time)}`, `alarm-${data.id}`, true);
 });
+
+async function scheduleNextAlarms(alarms) {
+  if (!('showTrigger' in self.registration)) return;
+  
+  // Clear existing triggers if possible (browser handles replacement by tag usually)
+  for (const alarm of alarms) {
+    if (!alarm.is_active) continue;
+    
+    const nextDate = getNextAlarmDate(alarm);
+    if (nextDate > Date.now()) {
+      await scheduleNotification(
+        `⏰ ${alarm.label}`,
+        `Your alarm is ringing! Time: ${fmt12(alarm.time)}`,
+        `alarm-${alarm.id}`,
+        nextDate.getTime()
+      );
+    }
+  }
+}
+
+function getNextAlarmDate(alarm) {
+  const [h, m] = alarm.time.split(':').map(Number);
+  let d = new Date();
+  d.setHours(h, m, 0, 0);
+
+  const now      = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+  const dayName  = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][now.getDay()];
+
+  if (alarm.repeat === 'none' && alarm.date) {
+    const fixedDate = new Date(alarm.date + 'T00:00:00');
+    d.setFullYear(fixedDate.getFullYear(), fixedDate.getMonth(), fixedDate.getDate());
+    if (d < now) return new Date(0); // Expired
+  } else {
+    // Repeating alarms
+    while (d < now || !shouldRingOnDay(alarm, d)) {
+      d.setDate(d.getDate() + 1);
+    }
+  }
+  return d;
+}
+
+function shouldRingOnDay(alarm, date) {
+  const day = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][date.getDay()];
+  const weekdays = ['monday','tuesday','wednesday','thursday','friday'];
+  const weekends = ['saturday','sunday'];
+  
+  switch (alarm.repeat) {
+    case 'daily':    return true;
+    case 'weekdays': return weekdays.includes(day);
+    case 'weekends': return weekends.includes(day);
+    case 'weekly':   return alarm.date ? new Date(alarm.date+'T00:00:00').getDay() === date.getDay() : true;
+    default:         return true;
+  }
+}
 
 self.addEventListener('periodicsync', event => {
   if (event.tag === 'alarm-check') event.waitUntil(checkAlarms());
@@ -76,7 +149,20 @@ self.addEventListener('push', event => {
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  if (event.action === 'dismiss') return;
+  const { action, notification } = event;
+  const alarmId = notification.tag ? notification.tag.replace('alarm-', '') : null;
+
+  if (action === 'dismiss') {
+    if (alarmId) event.waitUntil(markAlarmHandled(alarmId));
+    return;
+  }
+
+  if (action === 'snooze') {
+    event.waitUntil(handleSnooze(alarmId, notification.title));
+    return;
+  }
+
+  // Default: Open App
   event.waitUntil(
     clients.matchAll({ type:'window', includeUncontrolled:true }).then(list => {
       if (list.length) return list[0].focus();
@@ -84,6 +170,28 @@ self.addEventListener('notificationclick', event => {
     })
   );
 });
+
+async function handleSnooze(alarmId, title) {
+  const snoozeTime = Date.now() + (10 * 60 * 1000); // 10 minutes
+  const label = title.replace('⏰ ', '');
+  
+  // Schedule a new notification for later
+  await scheduleNotification(`⏰ [Snoozed] ${label}`, `Snoozed alarm is ringing!`, `alarm-${alarmId}-snooze`, snoozeTime);
+  
+  // Notify clients
+  const clientsList = await self.clients.matchAll();
+  clientsList.forEach(c => c.postMessage({ type: 'ALARM_SNOOZED', alarmId, snoozeTime }));
+}
+
+async function markAlarmHandled(alarmId) {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const fireKey = `fired-${alarmId}-${todayStr}`;
+  await saveData(fireKey, true);
+  
+  // Notify clients
+  const clientsList = await self.clients.matchAll();
+  clientsList.forEach(c => c.postMessage({ type: 'ALARM_DISMISSED', alarmId }));
+}
 
 async function checkAlarms() {
   const alarms = await loadData('alarms');
@@ -97,6 +205,8 @@ async function checkAlarms() {
   for (const alarm of alarms) {
     if (!alarm.is_active) continue;
     if (alarm.time !== hhmm) continue;
+    
+    // Check if within the same minute is enough, but to be sure:
     let ring = false;
     switch (alarm.repeat) {
       case 'none':     ring = !alarm.date || alarm.date === todayStr; break;
@@ -147,12 +257,50 @@ async function checkPlanReminder() {
 }
 
 async function showNotif(title, body, tag, requireInteraction) {
-  return self.registration.showNotification(title, {
-    body, icon:'./WhatsApp Image 2026-04-07 at 20.53.13.jpeg', badge:'./WhatsApp Image 2026-04-07 at 20.53.13.jpeg', tag,
-    requireInteraction, renotify: requireInteraction,
-    vibrate: requireInteraction ? [500,200,500,200,500,200,500] : [200,100,200],
-    actions: [{ action:'dismiss', title:'Dismiss' }, { action:'open', title:'Open App' }]
-  });
+  const options = {
+    body,
+    icon: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+    badge: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+    tag,
+    requireInteraction,
+    renotify: requireInteraction,
+    vibrate: requireInteraction ? [500, 200, 500, 200, 500, 200, 500] : [200, 100, 200],
+    actions: [
+      { action: 'snooze', title: 'Snooze (10m)', icon: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg' },
+      { action: 'dismiss', title: 'Dismiss', icon: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg' },
+      { action: 'open', title: 'Open App' }
+    ]
+  };
+  return self.registration.showNotification(title, options);
+}
+
+async function scheduleNotification(title, body, tag, timestamp) {
+  const options = {
+    body,
+    icon: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+    badge: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+    tag,
+    requireInteraction: true,
+    renotify: true,
+    vibrate: [500, 200, 500, 200, 500, 200, 500],
+    actions: [
+      { action: 'snooze', title: 'Snooze (10m)' },
+      { action: 'dismiss', title: 'Dismiss' }
+    ]
+  };
+
+  // Try to use Notification Triggers if supported
+  if ('showTrigger' in self.registration) {
+    options.showTrigger = new TimestampTrigger(timestamp);
+  } else {
+    // Fallback: If trigger not supported, we can't schedule precisely offline.
+    // We'll rely on the existing periodicsync loop or immediate show if timestamp is now.
+    const delay = timestamp - Date.now();
+    if (delay <= 0) {
+       return self.registration.showNotification(title, options);
+    }
+  }
+  return self.registration.showNotification(title, options);
 }
 
 async function saveData(key, value) {

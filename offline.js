@@ -2,9 +2,22 @@
 //  offline.js  —  PlanTrack System Offline & Background Manager
 // ================================================================
 
-'use strict';
+// ── Broadcast Channel for cross-tab sync ────────────────────────
+const syncChannel = new BroadcastChannel('plantrack_sync');
 
-let swReg = null;
+syncChannel.onmessage = (event) => {
+  const { action, data } = event.data || {};
+  if (action === 'DISMISS_ALARM') {
+    if (window.dismissAlarm) window.dismissAlarm(true); // true means "remote"
+  }
+  if (action === 'SNOOZE_ALARM') {
+    if (window.snoozeAlarm) window.snoozeAlarm(true);
+  }
+};
+
+window.broadcastAction = function(action, data = null) {
+  syncChannel.postMessage({ action, data });
+};
 
 async function registerSW() {
   if (!('serviceWorker' in navigator)) {
@@ -14,6 +27,10 @@ async function registerSW() {
   try {
     swReg = await navigator.serviceWorker.register('./sw.js', { scope: './' });
     console.log('✅ Service Worker registered');
+    
+    // Listen for messages from SW
+    navigator.serviceWorker.onmessage = handleSWMessage;
+
     setTimeout(askNotificationPermission, 3000);
     setupOfflineBanner();
     setupInstallPrompt();
@@ -91,14 +108,51 @@ window.pushPlansToSW  = function(plans)  { sendToSW('SAVE_PLANS',  plans);  };
 
 window.fireAlarmNotification = function(alarm) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  const notif = new Notification(`⏰ ${alarm.label}`, {
-    body: `Your alarm is ringing! Time: ${fmtTime(alarm.time)}`,
-    icon: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
-    tag:  `alarm-${alarm.id}`,
-    requireInteraction: true,
-  });
-  notif.onclick = () => { window.focus(); notif.close(); };
+  
+  if (navigator.serviceWorker.controller) {
+    // Let the Service Worker handle the notification for better background support
+    sendToSW('FIRE_NOTIF', alarm);
+  } else {
+    // Fallback if no SW controller
+    const notif = new Notification(`⏰ ${alarm.label}`, {
+      body: `Your alarm is ringing! Time: ${fmtTime(alarm.time)}`,
+      icon: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+      tag:  `alarm-${alarm.id}`,
+      requireInteraction: true,
+      vibrate: [500, 200, 500, 200, 500, 200, 500],
+      actions: [
+        { action:'snooze', title:'Snooze (10m)' },
+        { action:'dismiss', title:'Dismiss' }
+      ]
+    });
+    notif.onclick = () => { window.focus(); notif.close(); };
+    notif.onaction = (e) => {
+      if (e.action === 'snooze') window.snoozeAlarm();
+      else if (e.action === 'dismiss') window.dismissAlarm();
+    };
+  }
 };
+
+function handleSWMessage(event) {
+  const { type, alarmId, snoozeTime } = event.data || {};
+  console.log('📩 Message from SW:', type, alarmId);
+
+  if (type === 'ALARM_SNOOZED') {
+    if (window.snoozeAlarm) {
+      // If the app is open, standard snooze logic is usually better
+      // but we should sync the UI
+      toast('Alarm snoozed from background', 'info');
+      if (window.loadAlarms) window.loadAlarms();
+    }
+  }
+
+  if (type === 'ALARM_DISMISSED') {
+    if (window.dismissAlarm) {
+      window.dismissAlarm();
+      toast('Alarm dismissed from background', 'info');
+    }
+  }
+}
 
 function setupOfflineBanner() {
   const bar = document.createElement('div');

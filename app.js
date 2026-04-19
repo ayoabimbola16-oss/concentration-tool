@@ -57,8 +57,18 @@ let audioCtx = null;
 
 function getAudioCtx() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
   return audioCtx;
 }
+
+// Global resume on interaction to satisfy browser policies
+['mousedown', 'touchstart', 'keydown'].forEach(evt => {
+  window.addEventListener(evt, () => {
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  }, { once: false, passive: true });
+});
 
 function playSound(soundId, loop = false) {
   stopSound();
@@ -424,6 +434,16 @@ async function initApp(user) {
   startAlarmChecker();
   startAlarmCountdown();
   buildSoundGrid();
+  
+  // Sync state when coming back to app
+  window.addEventListener('focus', () => {
+    loadAlarms();
+    if (ringActive) {
+       // Check if sound should still be playing
+       // (e.g. if dismissed in background)
+    }
+  });
+
   if (window.initSocial) window.initSocial();
 }
 
@@ -982,7 +1002,11 @@ function ringAlarm(alarm) {
   if (window.fireAlarmNotification) window.fireAlarmNotification(alarm);
 }
 
-function dismissAlarm() {
+// Make globally accessible for sw integration
+window.dismissAlarm = dismissAlarm;
+window.snoozeAlarm = snoozeAlarm;
+
+function dismissAlarm(isRemote = false) {
   const activeId = ringAlarmId;
   const repeat   = ringAlarmRepeat;
   
@@ -993,6 +1017,12 @@ function dismissAlarm() {
   stopSound();
   document.getElementById('alarm-ring').style.display = 'none';
   
+  if (!isRemote && window.broadcastAction) {
+    window.broadcastAction('DISMISS_ALARM');
+  }
+
+  if (isRemote) return; // Background/Remote dismissal only stops UI/Sound
+
   if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({ type:'CLEAR_ALARMS' });
   }
@@ -1009,21 +1039,34 @@ function dismissAlarm() {
   }
 }
 
-async function snoozeAlarm() {
+async function snoozeAlarm(isRemote = false) {
   const activeId = ringAlarmId;
-  const label = document.getElementById('ring-label').textContent;
+  const labelText = document.getElementById('ring-label').textContent;
   
-  if (!activeId) { dismissAlarm(); return; }
+  if (!activeId) { dismissAlarm(isRemote); return; }
   
+  if (!isRemote && window.broadcastAction) {
+    window.broadcastAction('SNOOZE_ALARM');
+  }
+
+  // If remote, we just stop local ring. The initiator handles the DB part.
+  if (isRemote) { 
+    dismissAlarm(true);
+    return;
+  }
+
   const now = new Date();
   now.setMinutes(now.getMinutes() + 10);
   const tm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
   
+  // Clean label logic: avoid [Snoozed] [Snoozed]
+  const cleanLabel = labelText.replace(/^\[Snoozed\]\s*/, '');
+
   const payload = { 
     user_id: currentUserId, 
     time: tm, 
     date: now.toISOString().split('T')[0], 
-    label: `[Snoozed] ${label}`, 
+    label: `[Snoozed] ${cleanLabel}`, 
     repeat: 'none', 
     sound: selectedSound || 'beep', 
     is_active: true 
