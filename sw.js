@@ -292,6 +292,7 @@ async function scheduleNotification(title, body, tag, timestamp) {
   // Try to use Notification Triggers if supported
   if ('showTrigger' in self.registration) {
     options.showTrigger = new TimestampTrigger(timestamp);
+    return self.registration.showNotification(title, options);
   } else {
     // Fallback: If trigger not supported, we can't schedule precisely offline.
     // We'll rely on the existing periodicsync loop or immediate show if timestamp is now.
@@ -299,8 +300,10 @@ async function scheduleNotification(title, body, tag, timestamp) {
     if (delay <= 0) {
        return self.registration.showNotification(title, options);
     }
+    // If delay > 0 and no triggers, we don't show anything now.
+    // The background loop (checkAlarms) will handle it when the time comes.
   }
-  return self.registration.showNotification(title, options);
+  return Promise.resolve();
 }
 
 async function saveData(key, value) {
