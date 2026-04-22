@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
   <title>PlanTrack System</title>
-  <link rel="stylesheet" href="styles.css"/>
+  <link rel="stylesheet" href="styles.css?v=11"/>
   <link rel="manifest" href="manifest.json"/>
   <meta name="theme-color" content="#f0c040"/>
   <meta name="mobile-web-app-capable" content="yes"/>
@@ -17,8 +17,19 @@
 </head>
 <body>
 
+<!-- ════════════ SPLASH SCREEN ════════════ -->
+<div id="splash-screen">
+  <div class="splash-content">
+    <div class="splash-logo">
+      <img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" alt="Logo"/>
+    </div>
+    <div class="splash-text">PlanTrack</div>
+    <div class="splash-loader"><span></span></div>
+  </div>
+</div>
+
 <!-- ════════════════════ AUTH SCREEN ════════════════════ -->
-<div id="auth-screen">
+<div id="auth-screen" style="display:none">
   <div class="auth-bg">
     <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
   </div>
@@ -549,12 +560,46 @@
   </div>
 </div>
 
+<!-- UPLOAD PROGRESS -->
+<div id="upload-progress-overlay" class="overlay" style="display:none; z-index:10001;">
+  <div class="modal modal-xs" style="text-align:center; padding:30px 20px;">
+    <div class="up-icon" style="font-size:3rem; color:var(--accent); margin-bottom:16px;">
+      <i class="fa fa-cloud-upload-alt"></i>
+    </div>
+    <h3 style="font-family:'Playfair Display',serif; margin-bottom:8px;">Transferring Data</h3>
+    <p class="up-status" style="font-size:.85rem; color:var(--text2); margin-bottom:12px;">Preparing...</p>
+    
+    <div class="up-bar-wrap" style="height:8px; background:var(--surface3); border-radius:99px; overflow:hidden; margin-bottom:12px;">
+      <div class="up-fill" style="height:100%; background:linear-gradient(90deg, var(--accent), var(--accent2)); width:0%; transition:width 0.1s linear;"></div>
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div class="up-text" style="font-size:.9rem; font-weight:700; color:var(--accent);">0%</div>
+      <div class="up-detail" style="font-size:.7rem; color:var(--text3); font-weight:600;">0 MB / 0 MB</div>
+    </div>
+  </div>
+</div>
+
+<!-- SHARE CARD TEMPLATE (HIDDEN) -->
+<div id="share-card-wrap" style="position:fixed; left:-9999px; top:-9999px;">
+  <div id="share-card" class="share-card">
+    <div class="sc-logo">
+      <img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" alt="Logo"/>
+      <span>PlanTrack</span>
+    </div>
+    <div id="sc-content"></div>
+    <div class="sc-footer">
+      <div class="sc-tagline">Efficiency at its peak — Created with PlanTrack</div>
+    </div>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div id="toast" class="toast"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="config.js"></script>
-<script src="offline.js"></script>
-<script src="app.js"></script>
+<script src="config.js?v=11"></script>
+<script src="offline.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

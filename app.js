@@ -5,6 +5,20 @@
 
 'use strict';
 
+/**
+ * AUTO-REFRESH ON LAUNCH
+ * This ensures that every time the app is opened from a closed state, 
+ * it refreshes once to activate the latest code and clear any cached glitches.
+ */
+(function() {
+  const SESSION_KEY = 'pt_launch_refresh_done';
+  if (!sessionStorage.getItem(SESSION_KEY)) {
+    sessionStorage.setItem(SESSION_KEY, 'true');
+    // Tiny delay to ensure storage writes complete in some PWA environments
+    setTimeout(() => window.location.reload(), 10);
+  }
+})();
+
 // ── Wait for Supabase to load ────────────────────────────────────
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_ANON);
@@ -235,6 +249,182 @@ function escHtml(str) {
 }
 
 function capitalize(s) { return s?s.charAt(0).toUpperCase()+s.slice(1):''; }
+
+/**
+ * Client-side Image Compression
+ * @param {File} file 
+ * @param {number} maxWidth 
+ * @param {number} quality (0 to 1) 
+ * @returns {Promise<Blob>}
+ */
+function compressImage(file, maxWidth = 1920, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob((blob) => {
+          if (blob) {
+            // Only return compressed if it's actually smaller
+            resolve(blob.size < file.size ? blob : file);
+          } else {
+            resolve(file);
+          }
+        }, file.type, quality);
+      };
+      img.onerror = () => resolve(file);
+    };
+    reader.onerror = () => resolve(file);
+  });
+}
+
+function showUploadProgress(show, percent = 0, status = 'Uploading...', loaded = 0, total = 0) {
+  const overlay = document.getElementById('upload-progress-overlay');
+  if (!overlay) return;
+  overlay.style.display = show ? 'flex' : 'none';
+  const fill = overlay.querySelector('.up-fill');
+  const text = overlay.querySelector('.up-text');
+  const stat = overlay.querySelector('.up-status');
+  const det  = overlay.querySelector('.up-detail');
+  
+  if (fill) fill.style.width = `${percent}%`;
+  if (text) text.textContent = `${Math.round(percent)}%`;
+  if (stat) stat.textContent = status;
+  if (det && total > 0) {
+    det.textContent = `${(loaded / (1024*1024)).toFixed(1)} MB / ${(total / (1024*1024)).toFixed(1)} MB`;
+  }
+}
+
+/**
+ * Universal Share/Export Utility
+ */
+async function exportComponentAsImage(elementId, fileName, type = 'item') {
+  const target = document.getElementById(elementId);
+  const scWrap = document.getElementById('share-card-wrap');
+  const scBody = document.getElementById('sc-content');
+  if (!target || !scWrap || !scBody) return;
+
+  toast('Capturing shareable image...', 'info');
+
+  // Prepare the Share Card
+  const isPreBuilt = target.id === 'share-card';
+  
+  if (!isPreBuilt) {
+    scBody.innerHTML = '';
+    const clone = target.cloneNode(true);
+    clone.style.display = 'block'; // Ensure visible for capture
+    
+    // Remove interactive elements from clone
+    clone.querySelectorAll('button, .icon-btn, .alarm-actions, .plan-card-actions, .tt-card-actions, .file-actions, .toggle-wrap, .status-btns')
+      .forEach(el => el.remove());
+
+    scBody.appendChild(clone);
+  }
+
+  try {
+    const canvasSize = document.getElementById('share-card');
+    const canvas = await html2canvas(canvasSize, {
+      backgroundColor: '#0c0e14',
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      scrollY: -window.scrollY,
+      width: canvasSize.scrollWidth,
+      windowWidth: canvasSize.scrollWidth + 100
+    });
+
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    const file = new File([blob], `${fileName}.png`, { type: 'image/png' });
+
+    if (navigator.share && window.isSecureContext) {
+      await navigator.share({
+        files: [file],
+        title: `PlanTrack ${type}`,
+        text: `Check out my ${type} on PlanTrack!`
+      });
+    } else {
+      // Fallback: Download
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('Image saved to downloads', 'success');
+    }
+  } catch (err) {
+    console.error('Export failed:', err);
+    toast('Capture failed. Please try again.', 'error');
+  } finally {
+    scBody.innerHTML = '';
+  }
+}
+
+function shareFileCard(f) {
+  const scBody = document.getElementById('sc-content');
+  const scCard = document.getElementById('share-card');
+  if (!scBody || !scCard) return;
+
+  const isImg = isImage(f.name) && f.url;
+  const icon = fileIcon(f.name);
+  
+  if (isImg) {
+    // PURE IMAGE MODE: Only the image, no text/buttons/branding
+    scBody.innerHTML = `
+      <div class="sc-file-preview">
+        <img src="${f.url}" alt="${escHtml(f.name)}" crossorigin="anonymous" />
+      </div>`;
+    scCard.classList.add('pure-image');
+  } else {
+    // STANDARD MODE: Branded card for other files
+    scBody.innerHTML = `
+      <div class="sc-file-card">
+        <i class="fa ${icon} sc-file-icon"></i>
+        <div class="sc-file-info">
+          <div class="sc-file-name">${escHtml(f.name)}</div>
+          <div class="sc-file-size">${fileSize(f.size || 0)}</div>
+        </div>
+        <div class="sc-download-btn">DOWNLOAD SECURELY ON PLANTRACK</div>
+      </div>`;
+    scCard.classList.add('no-brand');
+  }
+
+  const finalize = async () => {
+    await exportComponentAsImage('share-card', `File_${f.name.replace(/\W/g,'_')}`, 'File');
+    scCard.classList.remove('pure-image', 'no-brand');
+  };
+
+  if (isImg) {
+    const img = scBody.querySelector('img');
+    img.onload = finalize;
+    img.onerror = finalize;
+  } else {
+    finalize();
+  }
+}
+
+async function shareTimetable(id) {
+  await viewTimetable(id); // Populates ttv-body
+  // Wait a tiny bit for DOM to render
+  setTimeout(() => exportComponentAsImage('ttv-body', `Timetable_${id}`, 'Timetable'), 100);
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  VOICE RECOGNITION
@@ -576,16 +766,23 @@ async function uploadAvatar(event) {
   const file = event.target.files[0];
   if (!file) return;
   if (!file.type.startsWith('image/')) { toast('Please select an image', 'error'); return; }
-  if (file.size > 5 * 1024 * 1024) { toast('Image too large. Maximum 5MB.', 'error'); return; }
+  
+  showUploadProgress(true, 10, 'Optimizing image...');
+  const finalFile = await compressImage(file, 800, 0.7);
+  
+  showUploadProgress(true, 40, 'Uploading picture...');
 
-  toast('Uploading picture...', 'info');
-
-  // ── Step 1: Try to upload to Supabase Storage ──
   const path = `${currentUserId}/avatar_${Date.now()}`;
-  const { error: upErr } = await db.storage.from(STORAGE_BUCKET).upload(path, file, { upsert: true });
+  const { error: upErr } = await db.storage.from(STORAGE_BUCKET).upload(path, finalFile, { 
+    upsert: true,
+    onUploadProgress: (p) => {
+      const pct = 40 + (p.loaded / p.total) * 50;
+      showUploadProgress(true, pct, 'Uploading picture...', p.loaded, p.total);
+    }
+  });
 
   if (upErr) {
-    // Storage upload failed — fall back to local base64 storage
+    showUploadProgress(false);
     console.warn('Storage upload failed, using local fallback:', upErr.message);
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -593,11 +790,11 @@ async function uploadAvatar(event) {
       const localKey = `avatar_${currentUserId}`;
       try {
         localStorage.setItem(localKey, dataUrl);
-        if (currentUserProfile) currentUserProfile.avatar_url = null; // clear so local is used
+        if (currentUserProfile) currentUserProfile.avatar_url = null;
         renderAvatar();
         toast('Profile picture saved locally!', 'success');
       } catch (storageErr) {
-        toast('Image too large to store locally. Try a smaller image.', 'error');
+        toast('Image too large to store locally.', 'error');
       }
     };
     reader.readAsDataURL(file);
@@ -605,29 +802,25 @@ async function uploadAvatar(event) {
     return;
   }
 
-  // ── Step 2: Get public URL ──
   const { data: urlData } = db.storage.from(STORAGE_BUCKET).getPublicUrl(path);
   const publicUrl = urlData?.publicUrl;
 
   if (!publicUrl) {
-    toast('Could not get image URL. Try again.', 'error');
+    showUploadProgress(false);
+    toast('Could not get image URL.', 'error');
     event.target.value = '';
     return;
   }
 
-  // ── Step 3: Try to save URL to profiles table ──
   const { error: dbErr } = await db.from('profiles').update({ avatar_url: publicUrl }).eq('id', currentUserId);
+  showUploadProgress(false);
 
   if (dbErr) {
-    // DB column missing or update failed — save to localStorage as fallback
-    console.warn('DB avatar save failed (column may be missing):', dbErr.message);
-    const localKey = `avatar_${currentUserId}`;
-    localStorage.setItem(localKey, publicUrl);
-    if (currentUserProfile) currentUserProfile.avatar_url = null; // ensure local key is used
+    localStorage.setItem(`avatar_${currentUserId}`, publicUrl);
+    if (currentUserProfile) currentUserProfile.avatar_url = null;
     renderAvatar();
     toast('Profile picture saved!', 'success');
   } else {
-    // Full success — save in memory and clear local cache
     if (currentUserProfile) currentUserProfile.avatar_url = publicUrl;
     localStorage.removeItem(`avatar_${currentUserId}`);
     renderAvatar();
@@ -683,20 +876,32 @@ async function uploadMusicFile(event) {
     toast('Please upload an audio file (MP3, WAV, OGG, M4A etc)', 'error');
     event.target.value = ''; return;
   }
-  if (file.size > 15 * 1024 * 1024) {
-    toast('File too large. Maximum size is 15MB.', 'error');
-    event.target.value = ''; return;
-  }
-  toast('Uploading your music...', 'info');
+  
+  showUploadProgress(true, 20, 'Uploading music...');
   const path = `${currentUserId}/sounds/${Date.now()}_${file.name}`;
-  const { error: uploadErr } = await db.storage.from(STORAGE_BUCKET).upload(path, file, { upsert: true });
-  if (uploadErr) { toast('Upload failed: '+uploadErr.message, 'error'); return; }
+  const { error: uploadErr } = await db.storage.from(STORAGE_BUCKET).upload(path, file, { 
+    upsert: true,
+    onUploadProgress: (p) => {
+      const pct = 20 + (p.loaded / p.total) * 70;
+      showUploadProgress(true, pct, 'Uploading music...', p.loaded, p.total);
+    }
+  });
+  
+  if (uploadErr) { 
+    showUploadProgress(false);
+    toast('Upload failed: '+uploadErr.message, 'error'); 
+    return; 
+  }
+  
+  showUploadProgress(true, 70, 'Saving to library...');
   const { data: urlData } = db.storage.from(STORAGE_BUCKET).getPublicUrl(path);
   const { error: dbErr } = await db.from('user_sounds').insert({
     user_id: currentUserId,
     name: file.name.replace(/\.[^/.]+$/, ''),
     path, url: urlData.publicUrl, size: file.size,
   });
+  
+  showUploadProgress(false);
   if (dbErr) { toast('Could not save sound: '+dbErr.message, 'error'); return; }
   toast(`✅ "${file.name}" added to your sounds!`, 'success');
   event.target.value = '';
@@ -1175,6 +1380,7 @@ function renderTimetables(list) {
       <div class="tt-card-meta">${tt.rows?.length||0} rows · ${tt.columns?.length||0} columns</div>
       <div class="tt-card-actions">
         <button class="icon-btn" onclick="viewTimetable('${tt.id}')" type="button"><i class="fa fa-eye"></i> View</button>
+        <button class="icon-btn" onclick="shareTimetable('${tt.id}')" type="button"><i class="fa fa-share-alt"></i> Share</button>
         <button class="icon-btn" onclick="editTimetable('${tt.id}')" type="button"><i class="fa fa-edit"></i> Edit</button>
         <button class="icon-btn del" onclick="confirmDelete('timetable','${tt.id}','${escHtml(tt.tt_type)}')" type="button"><i class="fa fa-trash"></i></button>
       </div>`;
@@ -1373,6 +1579,7 @@ function renderFiles(files) {
       <div class="fc-size">${fileSize(f.size||0)}</div>
       <div class="file-actions">
         <a href="${f.url}" target="_blank" rel="noopener noreferrer" class="icon-btn" title="Open"><i class="fa fa-external-link-alt"></i></a>
+        <button class="icon-btn" onclick="shareFileCard({name:'${escHtml(f.name).replace(/'/g,"\\'")}', size:${f.size||0}, url:'${f.url}', mime:'${f.mime}'})" title="Share"><i class="fa fa-share-alt"></i></button>
         <button class="icon-btn del" onclick="confirmDelete('file','${f.id}','${escHtml(f.name)}')" title="Delete" type="button"><i class="fa fa-trash"></i></button>
       </div>`;
     grid.appendChild(card);
@@ -1382,15 +1589,58 @@ function renderFiles(files) {
 async function handleUpload(event) {
   const files = Array.from(event.target.files);
   if (!files.length || !currentFolderId) return;
-  for (const file of files) {
-    const path = `${currentUserId}/${currentFolderId}/${Date.now()}_${file.name}`;
-    const { error: uploadErr } = await db.storage.from(STORAGE_BUCKET).upload(path, file, { upsert:true });
-    if (uploadErr) { toast('Upload failed: '+uploadErr.message,'error'); continue; }
-    const { data: urlData } = db.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-    await db.from('files').insert({ user_id:currentUserId, folder_id:currentFolderId, name:file.name, path, url:urlData.publicUrl, size:file.size, mime:file.type });
-    toast(`Uploaded: ${file.name}`,'success');
-  }
-  event.target.value = ''; loadFiles(currentFolderId);
+
+  const total = files.length;
+  let completed = 0;
+
+  showUploadProgress(true, 0, `Preparing ${total} file(s)...`);
+
+  const uploadPromises = files.map(async (file) => {
+    try {
+      let finalFile = file;
+      if (file.type.startsWith('image/')) {
+        finalFile = await compressImage(file, 1600, 0.8);
+      }
+
+      const path = `${currentUserId}/${currentFolderId}/${Date.now()}_${file.name}`;
+      const { error: uploadErr } = await db.storage.from(STORAGE_BUCKET).upload(path, finalFile, { 
+        upsert: true,
+        onUploadProgress: (p) => {
+          // This is per-file, but we'll approximate batch progress
+          // More advanced would track all active uploads
+          showUploadProgress(true, (completed / total) * 100, `Uploading batch... (${completed}/${total})`, p.loaded, p.total);
+        }
+      });
+      
+      if (uploadErr) throw uploadErr;
+
+      const { data: urlData } = db.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+      await db.from('files').insert({
+        user_id: currentUserId,
+        folder_id: currentFolderId,
+        name: file.name,
+        path,
+        url: urlData.publicUrl,
+        size: finalFile.size,
+        mime: file.type
+      });
+
+      completed++;
+      const pct = (completed / total) * 100;
+      showUploadProgress(true, pct, `Uploading... (${completed}/${total})`);
+    } catch (err) {
+      console.error('Upload error for', file.name, err);
+      toast(`Failed: ${file.name}`, 'error');
+    }
+  });
+
+  await Promise.all(uploadPromises);
+  
+  showUploadProgress(true, 100, 'All uploads complete!');
+  setTimeout(() => showUploadProgress(false), 1500);
+  
+  event.target.value = '';
+  loadFiles(currentFolderId);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1494,6 +1744,7 @@ function renderPlans(plans) {
         <div style="display:flex;align-items:center;gap:10px">
           <span style="font-size:.78rem;color:var(--text2)">${fmtDate(plan.start_date)} – ${fmtDate(plan.end_date)}</span>
           <div class="plan-card-actions" onclick="event.stopPropagation()">
+            <button class="icon-btn" onclick="exportComponentAsImage('pb-${plan.id}', 'Plan_${plan.id}', 'Plan')" type="button"><i class="fa fa-share-alt"></i></button>
             <button class="icon-btn edit-plan" type="button"><i class="fa fa-edit"></i></button>
             <button class="icon-btn del" onclick="confirmDelete('plan','${plan.id}','${escHtml(plan.title)}')" type="button"><i class="fa fa-trash"></i></button>
           </div>
@@ -1734,15 +1985,32 @@ window.startSubscription = function() {
 //  BOOTSTRAP
 // ═══════════════════════════════════════════════════════════════
 (async () => {
+  const hideSplash = () => {
+    const splash = document.getElementById('splash-screen');
+    if (splash) {
+      splash.style.opacity = '0';
+      setTimeout(() => splash.remove(), 500);
+    }
+  };
+
   try {
     const { data: { session } } = await db.auth.getSession();
-    if (session?.user) await initApp(session.user);
+    if (session?.user) {
+      document.getElementById('auth-screen').style.display = 'none';
+      await initApp(session.user);
+    } else {
+      document.getElementById('auth-screen').style.display = 'flex';
+    }
   } catch(e) {
     console.error('Session check failed:', e);
+    document.getElementById('auth-screen').style.display = 'flex';
+  } finally {
+    hideSplash();
   }
 
   db.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_IN' && session?.user && !currentUser) {
+      document.getElementById('auth-screen').style.display = 'none';
       await initApp(session.user);
     }
     if (event === 'SIGNED_OUT') {
