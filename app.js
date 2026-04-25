@@ -675,11 +675,12 @@ function showSection(name) {
   if (navBtn) navBtn.classList.add('active');
 
   const loaders = {
-    alarms:    loadAlarms,
-    timetable: loadTimetables,
-    files:     loadFolders,
-    plans:     loadPlans,
-    profile:   loadProfile,
+    alarms:       loadAlarms,
+    timetable:    loadTimetables,
+    files:        loadFolders,
+    plans:        loadPlans,
+    profile:      loadProfile,
+    focustimer: loadFocusStats,
     social:    () => { if(window.loadFriends) loadFriends(); if(window.loadSharedWithMe) loadSharedWithMe(); },
   };
   if (loaders[name]) loaders[name]();
@@ -2023,3 +2024,317 @@ window.startSubscription = function() {
   const pStartEl = document.getElementById('p-start');
   if (pStartEl) pStartEl.value = today();
 })();
+
+// ═══════════════════════════════════════════════════════════════
+//  FOCUS TIMER ENGINE
+// ═══════════════════════════════════════════════════════════════
+let focusInterval       = null;
+let focusSecondsLeft    = 1500; // default 25m
+let focusTotalSeconds   = 1500;
+let focusIsRunning      = false;
+let focusSessionsToday  = 0;
+let focusTimeTotal      = 0; // in minutes
+let focusCompletionSound = 'chime'; // default sound for timer end
+
+function buildTimerSoundPicker() {
+  const picker = document.getElementById('timer-sound-picker');
+  if (!picker) return;
+
+  const builtIn = SOUNDS.map(s => `
+    <div class="timer-sound-item ${focusCompletionSound === s.id ? 'selected' : ''}"
+         id="tsi-${s.id}" onclick="selectTimerSound('${s.id}')">
+      <span>${s.emoji}</span>
+      <span class="timer-sound-name">${escHtml(s.name)}</span>
+      <button class="sound-preview-btn" onclick="event.stopPropagation();previewSound('${s.id}')" type="button" title="Preview">
+        <i class="fa fa-play"></i>
+      </button>
+    </div>`).join('');
+
+  const userHtml = userSounds.length ? userSounds.map(s => `
+    <div class="timer-sound-item ${focusCompletionSound === s.id ? 'selected' : ''}"
+         id="tsi-${s.id}" onclick="selectTimerSound('${s.id}')">
+      <span>🎵</span>
+      <span class="timer-sound-name">${escHtml(s.name)}</span>
+      <button class="sound-preview-btn" onclick="event.stopPropagation();previewSound('${s.id}')" type="button" title="Preview">
+        <i class="fa fa-play"></i>
+      </button>
+      <button class="sound-preview-btn" onclick="event.stopPropagation();deleteTimerSound('${s.id.replace('user-','')}','${escHtml(s.name)}')" type="button" title="Delete" style="color:var(--red)">
+        <i class="fa fa-trash"></i>
+      </button>
+    </div>`).join('') : `<div class="timer-no-music">No music uploaded yet — use the Upload button above!</div>`;
+
+  picker.innerHTML = `
+    <div class="timer-sound-section-label">🎵 Built-in Sounds</div>
+    ${builtIn}
+    <div class="timer-sound-section-label" style="margin-top:8px">🎶 My Music</div>
+    ${userHtml}`;
+}
+
+function selectTimerSound(id) {
+  focusCompletionSound = id;
+  document.querySelectorAll('.timer-sound-item').forEach(el => el.classList.remove('selected'));
+  const el = document.getElementById(`tsi-${id}`);
+  if (el) el.classList.add('selected');
+}
+
+async function uploadTimerMusic(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('audio/')) {
+    toast('Please upload an audio file (MP3, WAV, OGG, M4A etc)', 'error');
+    event.target.value = ''; return;
+  }
+
+  showUploadProgress(true, 20, 'Uploading music...');
+  const path = `${currentUserId}/sounds/${Date.now()}_${file.name}`;
+  const { error: uploadErr } = await db.storage.from(STORAGE_BUCKET).upload(path, file, {
+    upsert: true,
+    onUploadProgress: (p) => {
+      const pct = 20 + (p.loaded / p.total) * 70;
+      showUploadProgress(true, pct, 'Uploading music...', p.loaded, p.total);
+    }
+  });
+
+  if (uploadErr) {
+    showUploadProgress(false);
+    toast('Upload failed: ' + uploadErr.message, 'error');
+    event.target.value = ''; return;
+  }
+
+  showUploadProgress(true, 95, 'Saving to library...');
+  const { data: urlData } = db.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+  const { error: dbErr } = await db.from('user_sounds').insert({
+    user_id: currentUserId,
+    name: file.name.replace(/\.[^/.]+$/, ''),
+    path, url: urlData.publicUrl, size: file.size,
+  });
+
+  showUploadProgress(false);
+  if (dbErr) { toast('Could not save sound: ' + dbErr.message, 'error'); event.target.value = ''; return; }
+
+  toast(`✅ "${file.name}" added! You can now select it as your completion sound.`, 'success');
+  event.target.value = '';
+  await loadUserSounds();
+  buildTimerSoundPicker();
+  buildSoundGrid(); // also refresh alarm sound grid
+}
+
+async function deleteTimerSound(soundId, soundName) {
+  if (!confirm(`Remove "${soundName}" from your library?`)) return;
+  const { data: sound } = await db.from('user_sounds').select('path').eq('id', soundId).single();
+  if (sound?.path) await db.storage.from(STORAGE_BUCKET).remove([sound.path]);
+  await db.from('user_sounds').delete().eq('id', soundId).eq('user_id', currentUserId);
+  if (focusCompletionSound === `user-${soundId}`) focusCompletionSound = 'chime';
+  toast(`"${soundName}" removed.`, 'info');
+  await loadUserSounds();
+  buildTimerSoundPicker();
+  buildSoundGrid();
+}
+
+function applyCustomFocusTimer() {
+  if (focusIsRunning) {
+    toast('Pause or reset the timer before changing time.', 'error');
+    return;
+  }
+  const h = parseInt(document.getElementById('custom-timer-hours').value) || 0;
+  const m = parseInt(document.getElementById('custom-timer-mins').value)  || 0;
+  const s = parseInt(document.getElementById('custom-timer-secs').value)  || 0;
+  const total = h * 3600 + m * 60 + s;
+  if (total <= 0) { toast('Please enter a valid time.', 'error'); return; }
+  if (total > 24 * 3600) { toast('Maximum is 24 hours.', 'error'); return; }
+  focusSecondsLeft  = total;
+  focusTotalSeconds = total;
+  updateFocusUI();
+  const label = h > 0 ? `${h}h ${m}m ${s}s` : m > 0 ? `${m}m ${s}s` : `${s}s`;
+  toast(`Timer set to ${label}. Ready?`, 'info');
+}
+
+function setFocusTimer(mins) {
+  if (focusIsRunning) resetFocusTimer();
+  focusSecondsLeft  = mins * 60;
+  focusTotalSeconds = focusSecondsLeft;
+  // Sync custom inputs
+  const hEl = document.getElementById('custom-timer-hours');
+  const mEl = document.getElementById('custom-timer-mins');
+  const sEl = document.getElementById('custom-timer-secs');
+  if (hEl) hEl.value = 0;
+  if (mEl) mEl.value = mins;
+  if (sEl) sEl.value = 0;
+  updateFocusUI();
+  toast(`Timer set to ${mins} minutes. Ready?`, 'info');
+}
+
+function toggleFocusTimer() {
+  const btn = document.getElementById('timer-toggle-btn');
+  const container = document.querySelector('.timer-container');
+  
+  if (focusIsRunning) {
+    // PAUSE
+    clearInterval(focusInterval);
+    focusIsRunning = false;
+    btn.innerHTML = '<i class="fa fa-play"></i> Resume Focus';
+    btn.className = 'btn-save';
+    if (container) container.classList.remove('active');
+    toast('Timer paused.', 'info');
+  } else {
+    if (focusSecondsLeft <= 0) {
+      toast('Timer is at zero. Please reset or set a new time.', 'error');
+      return;
+    }
+    // START
+    focusIsRunning = true;
+    btn.innerHTML = '<i class="fa fa-pause"></i> Pause Focus';
+    btn.className = 'btn-cancel';
+    if (container) container.classList.add('active');
+    
+    focusInterval = setInterval(() => {
+      focusSecondsLeft--;
+      updateFocusUI();
+      
+      if (focusSecondsLeft <= 0) {
+        completeFocusSession();
+      }
+    }, 1000);
+    toast('Focus session started. Stay sharp!', 'success');
+  }
+}
+
+function resetFocusTimer() {
+  clearInterval(focusInterval);
+  focusIsRunning = false;
+  focusSecondsLeft = focusTotalSeconds;
+  
+  const btn = document.getElementById('timer-toggle-btn');
+  const container = document.querySelector('.timer-container');
+  if (btn) btn.innerHTML = '<i class="fa fa-play"></i> Start Focusing';
+  if (btn) btn.className = 'btn-save';
+  if (container) container.classList.remove('active');
+  
+  updateFocusUI();
+}
+
+function updateFocusUI() {
+  const timeEl = document.getElementById('timer-time');
+  const progEl = document.getElementById('timer-progress');
+  
+  if (!timeEl || !progEl) return;
+  
+  const h = Math.floor(focusSecondsLeft / 3600);
+  const m = Math.floor((focusSecondsLeft % 3600) / 60);
+  const s = focusSecondsLeft % 60;
+
+  if (h > 0) {
+    timeEl.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    timeEl.style.fontSize = '2rem'; // shrink for 3-part display
+  } else {
+    timeEl.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    timeEl.style.fontSize = '';
+  }
+  
+  // Update Progress Circle (Dasharray 283)
+  const ratio = focusTotalSeconds > 0 ? focusSecondsLeft / focusTotalSeconds : 0;
+  const offset = 283 - ratio * 283;
+  progEl.style.strokeDashoffset = offset;
+}
+
+function completeFocusSession() {
+  clearInterval(focusInterval);
+  focusIsRunning = false;
+
+  const btn = document.getElementById('timer-toggle-btn');
+  const container = document.querySelector('.timer-container');
+  if (btn) btn.innerHTML = '<i class="fa fa-play"></i> Start Focusing';
+  if (btn) btn.className = 'btn-save';
+  if (container) container.classList.remove('active');
+
+  focusSecondsLeft = 0;
+  updateFocusUI();
+  
+  // Update Stats
+  focusSessionsToday++;
+  const minsAdded = Math.max(1, Math.floor(focusTotalSeconds / 60));
+  focusTimeTotal += minsAdded;
+  
+  const sessionsEl  = document.getElementById('focus-sessions-count');
+  const totalTimeEl = document.getElementById('focus-total-time');
+  if (sessionsEl)  sessionsEl.textContent  = focusSessionsToday;
+  if (totalTimeEl) totalTimeEl.textContent = focusTimeTotal >= 60
+    ? `${Math.floor(focusTimeTotal/60)}h ${focusTimeTotal%60}m`
+    : `${focusTimeTotal}m`;
+  
+  // Play the chosen completion sound — loop until dismissed
+  playSound(focusCompletionSound, true);
+  
+  // Show a dismissible popup
+  showFocusCompletePopup();
+  
+  // Vibrate if mobile
+  if (navigator.vibrate) navigator.vibrate([300, 150, 300, 150, 300]);
+  
+  // Browser notification
+  if ('Notification' in window && Notification.permission === 'granted') {
+    const n = new Notification('⏰ Focus Session Complete!', {
+      body: `Great job! You focused for ${minsAdded} minutes.`,
+      icon: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+      tag: 'focus-complete',
+      requireInteraction: true,
+    });
+    n.onclick = () => { window.focus(); n.close(); stopSound(); };
+  }
+}
+
+function showFocusCompletePopup() {
+  const existing = document.getElementById('focus-complete-popup');
+  if (existing) existing.remove();
+
+  const popup = document.createElement('div');
+  popup.id = 'focus-complete-popup';
+  popup.style.cssText = `
+    position:fixed;top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,0.75);display:flex;align-items:center;
+    justify-content:center;z-index:9999;animation:fadeIn .3s ease;`;
+  popup.innerHTML = `
+    <div style="background:var(--surface);border:2px solid var(--accent);border-radius:20px;
+      padding:32px 28px;text-align:center;max-width:340px;width:90%;
+      box-shadow:0 20px 60px rgba(0,0,0,0.6);animation:scaleIn .3s ease;">
+      <div style="font-size:4rem;margin-bottom:12px;animation:pulse 1s infinite">🎉</div>
+      <h2 style="font-family:'Playfair Display',serif;color:var(--accent);margin-bottom:8px">
+        Focus Complete!
+      </h2>
+      <p style="color:var(--text2);font-size:.9rem;margin-bottom:20px;line-height:1.5">
+        Excellent work! Your focus session is done.<br>Take a short break, you earned it.
+      </p>
+      <div style="background:var(--surface3);border-radius:12px;padding:12px;margin-bottom:20px">
+        <div style="font-size:.75rem;color:var(--text3);text-transform:uppercase;letter-spacing:1px">Sessions today</div>
+        <div style="font-size:1.8rem;font-weight:700;color:var(--accent)">${focusSessionsToday}</div>
+      </div>
+      <button onclick="dismissFocusComplete()" type="button" style="
+        background:var(--accent);border:none;border-radius:12px;color:#000;
+        padding:14px 32px;font-size:1rem;font-weight:700;cursor:pointer;
+        font-family:'DM Sans',sans-serif;width:100%">
+        <i class="fa fa-stop-circle"></i> Stop &amp; Dismiss
+      </button>
+    </div>`;
+  document.body.appendChild(popup);
+}
+
+function dismissFocusComplete() {
+  stopSound();
+  const popup = document.getElementById('focus-complete-popup');
+  if (popup) popup.remove();
+  // Reset timer display
+  focusSecondsLeft = focusTotalSeconds;
+  updateFocusUI();
+  toast('Session dismissed. Ready for another round?', 'success');
+}
+
+// Initialize Focus State
+function loadFocusStats() {
+  const sessionsEl  = document.getElementById('focus-sessions-count');
+  const totalTimeEl = document.getElementById('focus-total-time');
+  if (sessionsEl)  sessionsEl.textContent  = focusSessionsToday;
+  if (totalTimeEl) totalTimeEl.textContent = `${focusTimeTotal}m`;
+  buildTimerSoundPicker();
+  updateFocusUI();
+}
+

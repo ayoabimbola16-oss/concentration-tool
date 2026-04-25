@@ -123,6 +123,9 @@
       <button class="nav-btn" id="nav-plans" onclick="showSection('plans')" type="button">
         <i class="fa fa-tasks"></i><span>Plans &amp; Activities</span>
       </button>
+      <button class="nav-btn" id="nav-focustimer" onclick="showSection('focustimer')" type="button">
+        <i class="fa fa-hourglass-half"></i><span>Focus Timer</span>
+      </button>
       <button class="nav-btn" id="nav-profile" onclick="showSection('profile')" type="button">
         <i class="fa fa-user"></i><span>My Profile</span>
       </button>
@@ -202,12 +205,12 @@
         </div>
       </section>
 
-      <!-- ─── PLANS ─── -->
+      <!-- ─── PLANS & ACTIVITIES ─── -->
       <section id="sec-plans" class="sec">
         <div class="sec-header">
           <div class="sec-title-block">
             <h1><i class="fa fa-tasks"></i> Plans &amp; Activities</h1>
-            <p>Track daily, weekly, monthly or yearly goals.</p>
+            <p>Create daily, weekly, monthly or yearly plans and track your activities.</p>
           </div>
           <button class="fab-btn" onclick="openPlanModal(null)" type="button"><i class="fa fa-plus"></i> <span>New Plan</span></button>
         </div>
@@ -221,7 +224,93 @@
         <div id="plans-list"></div>
         <div id="plans-empty" class="empty-state">
           <i class="fa fa-clipboard-list"></i>
-          <p>No plans yet. Start planning your goals!</p>
+          <p>No plans yet. Tap <strong>New Plan</strong> to get started.</p>
+        </div>
+      </section>
+
+      <!-- ─── FOCUS TIMER ─── -->
+      <section id="sec-focustimer" class="sec">
+        <div class="sec-header">
+          <div class="sec-title-block">
+            <h1><i class="fa fa-hourglass-half"></i> Focus Timer</h1>
+            <p>Enter a deep work state with a dedicated focus countdown.</p>
+          </div>
+        </div>
+
+        <div class="timer-container">
+          <div class="timer-display-wrap">
+            <svg class="timer-svg" viewBox="0 0 100 100">
+              <circle class="timer-bg-circle" cx="50" cy="50" r="45"></circle>
+              <circle class="timer-progress-circle" id="timer-progress" cx="50" cy="50" r="45"></circle>
+            </svg>
+            <div class="timer-text" id="timer-time">25:00</div>
+          </div>
+
+          <div class="timer-controls">
+            <div class="quick-starts">
+              <button class="btn-outline-sm" onclick="setFocusTimer(15)">15m</button>
+              <button class="btn-outline-sm" onclick="setFocusTimer(25)">25m</button>
+              <button class="btn-outline-sm" onclick="setFocusTimer(45)">45m</button>
+              <button class="btn-outline-sm" onclick="setFocusTimer(60)">60m</button>
+              <button class="btn-outline-sm" onclick="setFocusTimer(90)">90m</button>
+            </div>
+
+            <!-- Custom Time Input -->
+            <div class="timer-custom-row">
+              <label class="timer-custom-label"><i class="fa fa-sliders-h"></i> Custom Time</label>
+              <div class="timer-custom-inputs">
+                <div class="timer-custom-field">
+                  <input type="number" id="custom-timer-hours" min="0" max="23" value="0" placeholder="0"/>
+                  <span class="timer-unit-label">hrs</span>
+                </div>
+                <span class="timer-colon">:</span>
+                <div class="timer-custom-field">
+                  <input type="number" id="custom-timer-mins" min="0" max="59" value="25" placeholder="25"/>
+                  <span class="timer-unit-label">min</span>
+                </div>
+                <span class="timer-colon">:</span>
+                <div class="timer-custom-field">
+                  <input type="number" id="custom-timer-secs" min="0" max="59" value="0" placeholder="0"/>
+                  <span class="timer-unit-label">sec</span>
+                </div>
+                <button class="btn-outline-sm" onclick="applyCustomFocusTimer()" type="button"><i class="fa fa-check"></i> Set</button>
+              </div>
+            </div>
+
+            <!-- Completion Sound Picker -->
+            <div class="timer-sound-row">
+              <div class="timer-sound-row-header">
+                <label class="timer-custom-label"><i class="fa fa-music"></i> Completion Sound</label>
+                <label class="timer-upload-btn" title="Upload your own music">
+                  <i class="fa fa-upload"></i> Upload Music
+                  <input type="file" accept="audio/*" style="display:none" onchange="uploadTimerMusic(event)"/>
+                </label>
+              </div>
+              <div class="timer-sound-picker" id="timer-sound-picker">
+                <!-- Built by JS -->
+              </div>
+            </div>
+
+            <div class="timer-actions">
+              <button class="btn-save" id="timer-toggle-btn" onclick="toggleFocusTimer()">
+                <i class="fa fa-play"></i> Start Focusing
+              </button>
+              <button class="btn-cancel" onclick="resetFocusTimer()">
+                <i class="fa fa-redo"></i> Reset
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="focus-stats-mini">
+          <div class="focus-stat">
+            <span class="lbl">Sessions Today</span>
+            <span class="val" id="focus-sessions-count">0</span>
+          </div>
+          <div class="focus-stat">
+            <span class="lbl">Total Focus Time</span>
+            <span class="val" id="focus-total-time">0m</span>
+          </div>
         </div>
       </section>
 
