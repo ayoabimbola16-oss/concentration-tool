@@ -6,21 +6,55 @@
 'use strict';
 
 /**
- * AUTO-REFRESH ON LAUNCH
- * Refreshes once when app is opened fresh to load latest code.
- * Uses localStorage so the last active section survives the reload.
+ * ═══════════════════════════════════════════════════════════════
+ *  LAUNCH REFRESH + AUTO-UPDATE
+ *
+ *  1. Fresh open (app was closed): sessionStorage is empty →
+ *     mark it, then reload once so latest files are loaded.
+ *     sessionStorage clears automatically when the tab/app closes,
+ *     so every new launch triggers this exactly once.
+ *
+ *  2. Service worker update detected: if a new SW is waiting,
+ *     tell it to activate immediately → SW sends SW_UPDATED →
+ *     app reloads automatically with the newest code.
+ * ═══════════════════════════════════════════════════════════════
  */
 (function() {
-  const REFRESH_KEY = 'pt_launch_refresh_done';
-  const SECTION_KEY = 'pt_last_section';
-  const already = localStorage.getItem(REFRESH_KEY);
-  if (!already) {
-    // Mark BEFORE reloading so the section key is already set
-    localStorage.setItem(REFRESH_KEY, '1');
-    setTimeout(() => window.location.reload(), 10);
-  } else {
-    // Clear the flag so next fresh open also refreshes
-    localStorage.removeItem(REFRESH_KEY);
+  // ── Step 1: Fresh-open reload ──────────────────────────────
+  const LAUNCH_KEY = 'pt_session_started';
+  if (!sessionStorage.getItem(LAUNCH_KEY)) {
+    sessionStorage.setItem(LAUNCH_KEY, '1');
+    // Check for a waiting SW first — if found, activate it and
+    // let the SW_UPDATED message handle the reload instead.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then(reg => {
+        if (reg && reg.waiting) {
+          // New SW waiting → activate it; it will trigger reload via SW_UPDATED
+          reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        } else {
+          // No new SW — just do a plain reload to get fresh files
+          setTimeout(() => window.location.reload(), 100);
+        }
+      }).catch(() => {
+        setTimeout(() => window.location.reload(), 100);
+      });
+    } else {
+      setTimeout(() => window.location.reload(), 100);
+    }
+    return; // stop rest of script until reload fires
+  }
+
+  // ── Step 2: Check for SW updates on every page load ────────
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistration().then(reg => {
+      if (!reg) return;
+      // If a new SW is already waiting (user had app open during push)
+      if (reg.waiting) {
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
+      // Ask the current SW to check for updates from server
+      reg.update().catch(() => {});
+    });
   }
 })();
 
@@ -644,6 +678,39 @@ async function initApp(user) {
   });
 
   if (window.initSocial) window.initSocial();
+
+  // ── Service Worker: listen for updates & auto-reload ─────────
+  if ('serviceWorker' in navigator) {
+    // Message from SW when a new version just activated
+    navigator.serviceWorker.addEventListener('message', event => {
+      if (event.data?.type === 'SW_UPDATED') {
+        setTimeout(() => window.location.reload(), 300);
+      }
+    });
+
+    // Watch for a new SW installing while app is open
+    navigator.serviceWorker.ready.then(reg => {
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            // New SW installed and ready — activate it immediately
+            newWorker.postMessage({ type: 'SKIP_WAITING' });
+          }
+        });
+      });
+    });
+
+    // Reload when controller changes (SW just took over)
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        refreshing = true;
+        window.location.reload();
+      }
+    });
+  }
 }
 
 function renderAvatar() {
