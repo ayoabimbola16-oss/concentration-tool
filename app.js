@@ -2036,6 +2036,82 @@ let focusSessionsToday  = 0;
 let focusTimeTotal      = 0; // in minutes
 let focusCompletionSound = 'chime'; // default sound for timer end
 
+// ── Persist & Restore Timer State ───────────────────────────
+const FOCUS_KEY = 'plantrack_focus_state';
+
+function saveFocusState() {
+  const state = {
+    secondsLeft:     focusSecondsLeft,
+    totalSeconds:    focusTotalSeconds,
+    isRunning:       focusIsRunning,
+    sessionsToday:   focusSessionsToday,
+    timeTotal:       focusTimeTotal,
+    completionSound: focusCompletionSound,
+    savedAt:         Date.now(),   // so we can account for time elapsed while away
+    // sync custom input values
+    customH: parseInt(document.getElementById('custom-timer-hours')?.value) || 0,
+    customM: parseInt(document.getElementById('custom-timer-mins')?.value)  || 0,
+    customS: parseInt(document.getElementById('custom-timer-secs')?.value)  || 0,
+  };
+  try { localStorage.setItem(FOCUS_KEY, JSON.stringify(state)); } catch(e) {}
+}
+
+function restoreFocusState() {
+  try {
+    const raw = localStorage.getItem(FOCUS_KEY);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+
+    focusTotalSeconds   = state.totalSeconds    || 1500;
+    focusSessionsToday  = state.sessionsToday   || 0;
+    focusTimeTotal      = state.timeTotal        || 0;
+    focusCompletionSound = state.completionSound || 'chime';
+
+    // If it was running when they left, deduct elapsed time
+    if (state.isRunning && state.savedAt) {
+      const elapsed = Math.floor((Date.now() - state.savedAt) / 1000);
+      focusSecondsLeft = Math.max(0, (state.secondsLeft || focusTotalSeconds) - elapsed);
+    } else {
+      focusSecondsLeft = state.secondsLeft || focusTotalSeconds;
+    }
+
+    // Restore custom input fields
+    const hEl = document.getElementById('custom-timer-hours');
+    const mEl = document.getElementById('custom-timer-mins');
+    const sEl = document.getElementById('custom-timer-secs');
+    if (hEl) hEl.value = state.customH || 0;
+    if (mEl) mEl.value = state.customM || Math.floor(focusTotalSeconds / 60);
+    if (sEl) sEl.value = state.customS || 0;
+
+    // If timer was running and still has time, auto-resume
+    if (state.isRunning && focusSecondsLeft > 0) {
+      // Small delay to let DOM settle before starting interval
+      setTimeout(() => {
+        focusIsRunning = true;
+        const btn = document.getElementById('timer-toggle-btn');
+        const container = document.querySelector('.timer-container');
+        if (btn) { btn.innerHTML = '<i class="fa fa-pause"></i> Pause Focus'; btn.className = 'btn-cancel'; }
+        if (container) container.classList.add('active');
+        focusInterval = setInterval(() => {
+          focusSecondsLeft--;
+          updateFocusUI();
+          saveFocusState();
+          if (focusSecondsLeft <= 0) completeFocusSession();
+        }, 1000);
+        toast('⏱ Timer restored — still running!', 'info');
+      }, 600);
+    } else if (state.isRunning && focusSecondsLeft <= 0) {
+      // Timer finished while away — complete session
+      setTimeout(() => completeFocusSession(), 600);
+    }
+
+  } catch(e) {}
+}
+
+function clearFocusState() {
+  try { localStorage.removeItem(FOCUS_KEY); } catch(e) {}
+}
+
 function buildTimerSoundPicker() {
   const picker = document.getElementById('timer-sound-picker');
   if (!picker) return;
@@ -2075,6 +2151,7 @@ function selectTimerSound(id) {
   document.querySelectorAll('.timer-sound-item').forEach(el => el.classList.remove('selected'));
   const el = document.getElementById(`tsi-${id}`);
   if (el) el.classList.add('selected');
+  saveFocusState();
 }
 
 async function uploadTimerMusic(event) {
@@ -2145,6 +2222,7 @@ function applyCustomFocusTimer() {
   focusSecondsLeft  = total;
   focusTotalSeconds = total;
   updateFocusUI();
+  saveFocusState();
   const label = h > 0 ? `${h}h ${m}m ${s}s` : m > 0 ? `${m}m ${s}s` : `${s}s`;
   toast(`Timer set to ${label}. Ready?`, 'info');
 }
@@ -2161,6 +2239,7 @@ function setFocusTimer(mins) {
   if (mEl) mEl.value = mins;
   if (sEl) sEl.value = 0;
   updateFocusUI();
+  saveFocusState();
   toast(`Timer set to ${mins} minutes. Ready?`, 'info');
 }
 
@@ -2175,6 +2254,7 @@ function toggleFocusTimer() {
     btn.innerHTML = '<i class="fa fa-play"></i> Resume Focus';
     btn.className = 'btn-save';
     if (container) container.classList.remove('active');
+    saveFocusState();
     toast('Timer paused.', 'info');
   } else {
     if (focusSecondsLeft <= 0) {
@@ -2190,11 +2270,12 @@ function toggleFocusTimer() {
     focusInterval = setInterval(() => {
       focusSecondsLeft--;
       updateFocusUI();
-      
+      saveFocusState();
       if (focusSecondsLeft <= 0) {
         completeFocusSession();
       }
     }, 1000);
+    saveFocusState();
     toast('Focus session started. Stay sharp!', 'success');
   }
 }
@@ -2211,6 +2292,7 @@ function resetFocusTimer() {
   if (container) container.classList.remove('active');
   
   updateFocusUI();
+  saveFocusState();
 }
 
 function updateFocusUI() {
@@ -2249,11 +2331,24 @@ function completeFocusSession() {
 
   focusSecondsLeft = 0;
   updateFocusUI();
+  clearFocusState(); // wipe saved running state
   
   // Update Stats
   focusSessionsToday++;
   const minsAdded = Math.max(1, Math.floor(focusTotalSeconds / 60));
   focusTimeTotal += minsAdded;
+
+  // ── Save session to Supabase ──────────────────────────────
+  if (currentUserId) {
+    db.from('focus_sessions').insert({
+      user_id:       currentUserId,
+      duration_secs: focusTotalSeconds,
+      duration_mins: minsAdded,
+      sound_used:    focusCompletionSound,
+    }).then(({ error }) => {
+      if (error) console.warn('Could not save focus session:', error.message);
+    });
+  }
   
   const sessionsEl  = document.getElementById('focus-sessions-count');
   const totalTimeEl = document.getElementById('focus-total-time');
@@ -2320,21 +2415,43 @@ function showFocusCompletePopup() {
 
 function dismissFocusComplete() {
   stopSound();
+  clearFocusState();
   const popup = document.getElementById('focus-complete-popup');
   if (popup) popup.remove();
   // Reset timer display
   focusSecondsLeft = focusTotalSeconds;
   updateFocusUI();
+  saveFocusState();
   toast('Session dismissed. Ready for another round?', 'success');
 }
 
 // Initialize Focus State
-function loadFocusStats() {
-  const sessionsEl  = document.getElementById('focus-sessions-count');
-  const totalTimeEl = document.getElementById('focus-total-time');
-  if (sessionsEl)  sessionsEl.textContent  = focusSessionsToday;
-  if (totalTimeEl) totalTimeEl.textContent = `${focusTimeTotal}m`;
+async function loadFocusStats() {
+  restoreFocusState();
   buildTimerSoundPicker();
   updateFocusUI();
+
+  // ── Pull today's stats from Supabase ─────────────────────
+  if (!currentUserId) return;
+  try {
+    const todayStr = today();
+    const { data, error } = await db
+      .from('focus_sessions')
+      .select('duration_mins')
+      .eq('user_id', currentUserId)
+      .eq('date', todayStr);
+
+    if (!error && data) {
+      focusSessionsToday = data.length;
+      focusTimeTotal     = data.reduce((sum, s) => sum + (s.duration_mins || 0), 0);
+    }
+  } catch(e) {}
+
+  const sessionsEl  = document.getElementById('focus-sessions-count');
+  const totalTimeEl = document.getElementById('focus-total-time');
+  if (sessionsEl)  sessionsEl.textContent = focusSessionsToday;
+  if (totalTimeEl) totalTimeEl.textContent = focusTimeTotal >= 60
+    ? `${Math.floor(focusTimeTotal/60)}h ${focusTimeTotal%60}m`
+    : `${focusTimeTotal}m`;
 }
 
