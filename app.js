@@ -7,15 +7,20 @@
 
 /**
  * AUTO-REFRESH ON LAUNCH
- * This ensures that every time the app is opened from a closed state, 
- * it refreshes once to activate the latest code and clear any cached glitches.
+ * Refreshes once when app is opened fresh to load latest code.
+ * Uses localStorage so the last active section survives the reload.
  */
 (function() {
-  const SESSION_KEY = 'pt_launch_refresh_done';
-  if (!sessionStorage.getItem(SESSION_KEY)) {
-    sessionStorage.setItem(SESSION_KEY, 'true');
-    // Tiny delay to ensure storage writes complete in some PWA environments
+  const REFRESH_KEY = 'pt_launch_refresh_done';
+  const SECTION_KEY = 'pt_last_section';
+  const already = localStorage.getItem(REFRESH_KEY);
+  if (!already) {
+    // Mark BEFORE reloading so the section key is already set
+    localStorage.setItem(REFRESH_KEY, '1');
     setTimeout(() => window.location.reload(), 10);
+  } else {
+    // Clear the flag so next fresh open also refreshes
+    localStorage.removeItem(REFRESH_KEY);
   }
 })();
 
@@ -620,7 +625,11 @@ async function initApp(user) {
   document.getElementById('app').style.display = 'block';
 
   await loadUserSounds();
-  showSection('alarms');
+
+  // Restore last visited section (so refresh stays on same page)
+  const lastSection = (() => { try { return localStorage.getItem('pt_last_section') || 'alarms'; } catch(e) { return 'alarms'; } })();
+  showSection(lastSection);
+
   startAlarmChecker();
   startAlarmCountdown();
   buildSoundGrid();
@@ -673,6 +682,9 @@ function showSection(name) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   const navBtn = document.getElementById(`nav-${name}`);
   if (navBtn) navBtn.classList.add('active');
+
+  // Remember last section so refresh restores it
+  try { localStorage.setItem('pt_last_section', name); } catch(e) {}
 
   const loaders = {
     alarms:       loadAlarms,
@@ -2033,8 +2045,8 @@ let focusSecondsLeft    = 1500; // default 25m
 let focusTotalSeconds   = 1500;
 let focusIsRunning      = false;
 let focusSessionsToday  = 0;
-let focusTimeTotal      = 0; // in minutes
-let focusCompletionSound = 'chime'; // default sound for timer end
+let focusTotalSecs      = 0;    // total focused seconds (accurate, from DB)
+let focusCompletionSound = 'chime';
 
 // ── Persist & Restore Timer State ───────────────────────────
 const FOCUS_KEY = 'plantrack_focus_state';
@@ -2045,10 +2057,9 @@ function saveFocusState() {
     totalSeconds:    focusTotalSeconds,
     isRunning:       focusIsRunning,
     sessionsToday:   focusSessionsToday,
-    timeTotal:       focusTimeTotal,
+    focusTotalSecs:  focusTotalSecs,
     completionSound: focusCompletionSound,
-    savedAt:         Date.now(),   // so we can account for time elapsed while away
-    // sync custom input values
+    savedAt:         Date.now(),
     customH: parseInt(document.getElementById('custom-timer-hours')?.value) || 0,
     customM: parseInt(document.getElementById('custom-timer-mins')?.value)  || 0,
     customS: parseInt(document.getElementById('custom-timer-secs')?.value)  || 0,
@@ -2062,9 +2073,9 @@ function restoreFocusState() {
     if (!raw) return;
     const state = JSON.parse(raw);
 
-    focusTotalSeconds   = state.totalSeconds    || 1500;
-    focusSessionsToday  = state.sessionsToday   || 0;
-    focusTimeTotal      = state.timeTotal        || 0;
+    focusTotalSeconds    = state.totalSeconds    || 1500;
+    focusSessionsToday   = state.sessionsToday   || 0;
+    focusTotalSecs       = state.focusTotalSecs  || 0;
     focusCompletionSound = state.completionSound || 'chime';
 
     // If it was running when they left, deduct elapsed time
@@ -2333,29 +2344,30 @@ function completeFocusSession() {
   updateFocusUI();
   clearFocusState(); // wipe saved running state
   
-  // Update Stats
+  // Update Stats — use actual duration in seconds
   focusSessionsToday++;
-  const minsAdded = Math.max(1, Math.floor(focusTotalSeconds / 60));
-  focusTimeTotal += minsAdded;
+  const secsAdded  = focusTotalSeconds;
+  focusTotalSecs  += secsAdded;
 
   // ── Save session to Supabase ──────────────────────────────
   if (currentUserId) {
+    const minsForDB = Math.round(secsAdded / 60); // rounded, not floored
     db.from('focus_sessions').insert({
       user_id:       currentUserId,
-      duration_secs: focusTotalSeconds,
-      duration_mins: minsAdded,
+      duration_secs: secsAdded,
+      duration_mins: minsForDB,
       sound_used:    focusCompletionSound,
     }).then(({ error }) => {
       if (error) console.warn('Could not save focus session:', error.message);
+      else focusStatsLoaded = false; // force re-fetch next time section is opened
     });
   }
-  
+
+  // Update stats display
   const sessionsEl  = document.getElementById('focus-sessions-count');
   const totalTimeEl = document.getElementById('focus-total-time');
-  if (sessionsEl)  sessionsEl.textContent  = focusSessionsToday;
-  if (totalTimeEl) totalTimeEl.textContent = focusTimeTotal >= 60
-    ? `${Math.floor(focusTimeTotal/60)}h ${focusTimeTotal%60}m`
-    : `${focusTimeTotal}m`;
+  if (sessionsEl)  sessionsEl.textContent = focusSessionsToday;
+  if (totalTimeEl) totalTimeEl.textContent = formatFocusTime(focusTotalSecs);
   
   // Play the chosen completion sound — loop until dismissed
   playSound(focusCompletionSound, true);
@@ -2369,7 +2381,7 @@ function completeFocusSession() {
   // Browser notification
   if ('Notification' in window && Notification.permission === 'granted') {
     const n = new Notification('⏰ Focus Session Complete!', {
-      body: `Great job! You focused for ${minsAdded} minutes.`,
+      body: `Great job! You focused for ${formatFocusTime(secsAdded)}.`,
       icon: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
       tag: 'focus-complete',
       requireInteraction: true,
@@ -2425,33 +2437,57 @@ function dismissFocusComplete() {
   toast('Session dismissed. Ready for another round?', 'success');
 }
 
+// Helper — format seconds into "1h 23m 45s" or "23m 45s" or "45s"
+function formatFocusTime(secs) {
+  if (!secs || secs <= 0) return '0s';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  return `${s}s`;
+}
+
 // Initialize Focus State
+let focusStatsLoaded = false;
+
 async function loadFocusStats() {
   restoreFocusState();
   buildTimerSoundPicker();
   updateFocusUI();
 
-  // ── Pull today's stats from Supabase ─────────────────────
   if (!currentUserId) return;
+
+  // If already loaded this session, just refresh display from memory
+  if (focusStatsLoaded) {
+    _updateFocusStatsDisplay();
+    return;
+  }
+
   try {
     const todayStr = today();
     const { data, error } = await db
       .from('focus_sessions')
-      .select('duration_mins')
+      .select('duration_secs')
       .eq('user_id', currentUserId)
       .eq('date', todayStr);
 
-    if (!error && data) {
+    if (error) {
+      console.warn('Focus stats fetch error:', error.message);
+    } else if (data) {
       focusSessionsToday = data.length;
-      focusTimeTotal     = data.reduce((sum, s) => sum + (s.duration_mins || 0), 0);
+      focusTotalSecs     = data.reduce((sum, s) => sum + (s.duration_secs || 0), 0);
+      focusStatsLoaded   = true;
     }
-  } catch(e) {}
+  } catch(e) { console.warn('loadFocusStats error:', e); }
 
+  _updateFocusStatsDisplay();
+}
+
+function _updateFocusStatsDisplay() {
   const sessionsEl  = document.getElementById('focus-sessions-count');
   const totalTimeEl = document.getElementById('focus-total-time');
   if (sessionsEl)  sessionsEl.textContent = focusSessionsToday;
-  if (totalTimeEl) totalTimeEl.textContent = focusTimeTotal >= 60
-    ? `${Math.floor(focusTimeTotal/60)}h ${focusTimeTotal%60}m`
-    : `${focusTimeTotal}m`;
+  if (totalTimeEl) totalTimeEl.textContent = formatFocusTime(focusTotalSecs);
 }
 
