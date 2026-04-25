@@ -2,8 +2,8 @@
 //  sw.js  —  PlanTrack System Service Worker
 // ================================================================
 
-const CACHE_NAME = 'plantrack-v11';
-const DATA_CACHE = 'plantrack-data-v11';
+const CACHE_NAME = 'plantrack-v12';
+const DATA_CACHE = 'plantrack-data-v12';
 
 const FILES_TO_CACHE = [
   './',
