@@ -2769,3 +2769,20 @@ function _updateFocusStatsDisplay() {
   if (totalTimeEl) totalTimeEl.textContent = formatFocusTime(focusTotalSecs);
 }
 
+
+
+// ── PREVENT ACCIDENTAL CLOSURE IF ALARMS ARE ACTIVE ───────────────
+window.addEventListener('beforeunload', (e) => {
+  // Check if there are any active alarms
+  if (window.Capacitor && window.Capacitor.isNative) return; // Native apps handle background fine
+  
+  // Try to read alarms from DOM or a global variable
+  const activeAlarmsExist = document.querySelectorAll('.alarm-card:not(.off)').length > 0;
+  
+  if (activeAlarmsExist) {
+    const msg = "You have active alarms! If you close this tab, your alarms will NOT ring. Please leave the app open or minimized.";
+    e.preventDefault();
+    e.returnValue = msg;
+    return msg;
+  }
+});
