@@ -1,4 +1,4 @@
-// ═══════════════════════════════════════════════════════════════
+﻿// ═══════════════════════════════════════════════════════════════
 //  app.js  —  PlanTrack Concentration Tool
 //  Fixed: login bug, profile page, alarm off indicator, mobile
 // ═══════════════════════════════════════════════════════════════
@@ -536,35 +536,66 @@ async function login() {
   showAuthMsg('Signing in...', 'info');
 
   try {
-    // Step 1: find email from username
+    // Step 1: find email from username (case-insensitive match)
     const { data: profile, error: profileError } = await db
       .from('profiles')
       .select('email')
-      .eq('username', username)
+      .ilike('username', username)
       .maybeSingle();
 
     if (profileError) {
-      showAuthMsg('Error looking up username. Please try again.');
+      // Log the REAL Supabase error to the browser console
+      console.error('[PlanTrack Login] Username lookup failed:', {
+        code:    profileError.code,
+        message: profileError.message,
+        details: profileError.details,
+        hint:    profileError.hint,
+      });
+
+      // Show a specific message based on error type
+      if (!navigator.onLine) {
+        showAuthMsg('You are offline. Please check your internet connection.');
+      } else if (
+        profileError.code === 'PGRST301' ||
+        profileError.code === '42501'    ||
+        (profileError.message || '').toLowerCase().includes('rls') ||
+        (profileError.message || '').toLowerCase().includes('permission')
+      ) {
+        showAuthMsg('Database permission error. Please run fix-login-policy.sql in your Supabase SQL editor, then try again.');
+      } else {
+        showAuthMsg('Error looking up username (' + (profileError.message || 'unknown') + '). Please try again.');
+      }
       return;
     }
+
     if (!profile) {
-      showAuthMsg('Username not found. Please check and try again.');
+      showAuthMsg('Username not found. Please check spelling and try again.');
       return;
     }
 
     // Step 2: sign in with email + password
     const { data, error } = await db.auth.signInWithPassword({
-      email: profile.email,
+      email:    profile.email,
       password: password,
     });
 
     if (error) {
-      showAuthMsg(error.message || 'Incorrect password. Please try again.');
+      console.error('[PlanTrack Login] Sign-in failed:', error.message);
+      const msg = (error.message || '').toLowerCase();
+      if (msg.includes('invalid login') || msg.includes('invalid credentials') || msg.includes('wrong')) {
+        showAuthMsg('Incorrect password. Please try again.');
+      } else if (msg.includes('email not confirmed')) {
+        showAuthMsg('Please verify your email address first. Check your inbox for the confirmation link.');
+      } else if (msg.includes('too many')) {
+        showAuthMsg('Too many failed attempts. Please wait a few minutes and try again.');
+      } else {
+        showAuthMsg(error.message || 'Sign-in failed. Please try again.');
+      }
       return;
     }
 
     if (!data || !data.user) {
-      showAuthMsg('Login failed. Please try again.');
+      showAuthMsg('Login failed unexpectedly. Please try again.');
       return;
     }
 
@@ -572,7 +603,12 @@ async function login() {
     await initApp(data.user);
 
   } catch (err) {
-    showAuthMsg('An error occurred. Please check your internet connection.');
+    console.error('[PlanTrack Login] Unexpected exception:', err);
+    if (!navigator.onLine) {
+      showAuthMsg('You are offline. Please check your internet connection.');
+    } else {
+      showAuthMsg('An unexpected error occurred. Please refresh the page and try again.');
+    }
   }
 }
 

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PlanTrack</string>
+    <string name="title_activity_main">PlanTrack</string>
+    <string name="package_name">com.lenovo.plantrack</string>
+    <string name="custom_url_scheme">com.lenovo.plantrack</string>
+</resources>
