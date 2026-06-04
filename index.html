@@ -1,210 +1,210 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-  <title>PlanTrack System</title>
-  <link rel="stylesheet" href="styles.css?v=13"/>
-  <link rel="manifest" href="manifest.json"/>
-  <meta name="theme-color" content="#f0c040"/>
-  <meta name="mobile-web-app-capable" content="yes"/>
-  <meta name="apple-mobile-web-app-capable" content="yes"/>
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-  <meta name="apple-mobile-web-app-title" content="PlanTrack"/>
-  <link rel="apple-touch-icon" href="WhatsApp Image 2026-04-07 at 20.53.13.jpeg"/>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
-</head>
-<body>
-
-<!-- ════════════ SPLASH SCREEN ════════════ -->
-<div id="splash-screen">
-  <div class="splash-content">
-    <div class="splash-logo">
-      <img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" alt="Logo"/>
-    </div>
-    <div class="splash-text">PlanTrack</div>
-    <div class="splash-loader"><span></span></div>
-  </div>
-</div>
-
-<!-- ════════════════════ AUTH SCREEN ════════════════════ -->
-<div id="auth-screen" style="display:none">
-  <div class="auth-bg">
-    <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
-  </div>
-  <div class="auth-box">
-    <div class="auth-logo"><img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" class="logo-img" alt="Logo"/> PlanTrack</div>
-    <div class="auth-brand-line">CONCENTRATION TOOL</div>
-    <p class="auth-welcome" id="auth-welcome-text">Welcome back — sign in to continue</p>
-
-    <div class="auth-tabs" id="auth-tabs">
-      <button class="auth-tab active" onclick="switchTab('login')">Sign In</button>
-      <button class="auth-tab" onclick="switchTab('register')">Sign Up</button>
-    </div>
-
-    <!-- LOGIN -->
-    <div id="tab-login">
-      <div class="fg"><label>Username</label>
-        <input type="text" id="l-user" placeholder="Your username" autocomplete="username" inputmode="text"/></div>
-      <div class="fg"><label>Password</label>
-        <div class="pw-wrap">
-          <input type="password" id="l-pass" placeholder="Your password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()"/>
-          <button class="eye-btn" onclick="toggleEye('l-pass',this)" type="button"><i class="fa fa-eye"></i></button>
-        </div>
-      </div>
-      <button class="auth-btn" onclick="login()" type="button"><i class="fa fa-sign-in-alt"></i> Sign In</button>
-      <div class="auth-link-row"><button class="txt-btn" onclick="switchTab('forgot')" type="button">Forgot Password?</button></div>
-    </div>
-
-    <!-- REGISTER -->
-    <div id="tab-register" style="display:none">
-      <div class="fg"><label>Username</label>
-        <input type="text" id="r-user" placeholder="Choose a username" inputmode="text"/></div>
-      <div class="fg"><label>Email</label>
-        <input type="email" id="r-email" placeholder="Your email address" inputmode="email"/></div>
-      <div class="fg"><label>Password</label>
-        <div class="pw-wrap">
-          <input type="password" id="r-pass" placeholder="Create a password"/>
-          <button class="eye-btn" onclick="toggleEye('r-pass',this)" type="button"><i class="fa fa-eye"></i></button>
-        </div>
-      </div>
-      <button class="auth-btn" onclick="register()" type="button"><i class="fa fa-user-plus"></i> Create Account</button>
-    </div>
-
-    <!-- FORGOT -->
-    <div id="tab-forgot" style="display:none">
-      <p class="forgot-hint">Enter your email and we'll send a reset link.</p>
-      <div class="fg"><label>Email Address</label>
-        <input type="email" id="f-email" placeholder="your@email.com" inputmode="email"/></div>
-      <button class="auth-btn" onclick="sendReset()" type="button"><i class="fa fa-paper-plane"></i> Send Reset Link</button>
-      <div class="auth-link-row"><button class="txt-btn" onclick="switchTab('login')" type="button">← Back to Sign In</button></div>
-    </div>
-
-    <div id="auth-msg"></div>
-  </div>
-</div>
-
-<!-- ════════════════════ MAIN APP ════════════════════ -->
-<div id="app" style="display:none">
-
-  <!-- TOPBAR -->
-  <header class="topbar">
-    <div class="tb-left">
-      <button class="hamburger" onclick="toggleSidebar()" type="button"><i class="fa fa-bars"></i></button>
-      <div class="tb-logo"><img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" class="tb-logo-img" alt="Logo"/> PlanTrack</div>
-    </div>
-    <div class="tb-right">
-      <button class="profile-btn" onclick="showSection('profile')" type="button" title="My Profile">
-        <div class="tb-avatar" id="topbar-avatar-display"></div>
-        <span id="disp-user" class="profile-name"></span>
-      </button>
-      <button class="logout-btn" onclick="logout()" type="button"><i class="fa fa-sign-out-alt"></i><span class="logout-text">Logout</span></button>
-    </div>
-  </header>
-
-  <!-- SIDEBAR OVERLAY (mobile) -->
-  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
-
-  <div class="app-layout">
-
-    <!-- SIDEBAR -->
-    <nav class="sidebar" id="sidebar">
-      <div class="nav-label">NAVIGATION</div>
-      <button class="nav-btn active" id="nav-alarms" onclick="showSection('alarms')" type="button">
-        <i class="fa fa-bell"></i><span>Alarms</span>
-      </button>
-      <button class="nav-btn" id="nav-timetable" onclick="showSection('timetable')" type="button">
-        <i class="fa fa-calendar-alt"></i><span>Timetable</span>
-      </button>
-      <button class="nav-btn" id="nav-files" onclick="showSection('files')" type="button">
-        <i class="fa fa-folder-open"></i><span>File Manager</span>
-      </button>
-      <button class="nav-btn" id="nav-plans" onclick="showSection('plans')" type="button">
-        <i class="fa fa-tasks"></i><span>Plans &amp; Activities</span>
-      </button>
-      <button class="nav-btn" id="nav-focustimer" onclick="showSection('focustimer')" type="button">
-        <i class="fa fa-hourglass-half"></i><span>Focus Timer</span>
-      </button>
-      <button class="nav-btn" id="nav-profile" onclick="showSection('profile')" type="button">
-        <i class="fa fa-user"></i><span>My Profile</span>
-      </button>
-      <button class="nav-btn" id="install-app-btn" onclick="installPWA()" type="button" style="display:none">
-        <i class="fa fa-download"></i><span style="color:var(--accent)">Install App</span>
-      </button>
-      <div class="sidebar-footer">ABIMZZ &copy; 2026</div>
-    </nav>
-
-    <!-- CONTENT -->
-    <main class="content-area">
-
-      <!-- ─── ALARMS ─── -->
-      <section id="sec-alarms" class="sec active">
-        <div class="sec-header">
-          <div class="sec-title-block">
-            <h1><i class="fa fa-bell"></i> Alarms &amp; Reminders</h1>
-            <p>Set alarms manually or by voice. Upload your own music as alarm sound.</p>
-          </div>
-          <button class="fab-btn" onclick="openAlarmModal(null)" type="button"><i class="fa fa-plus"></i> <span>New Alarm</span></button>
-        </div>
-        <div id="alarms-grid" class="cards-grid"></div>
-        <div id="alarms-empty" class="empty-state">
-          <i class="fa fa-bell-slash"></i>
-          <p>No alarms yet. Tap <strong>New Alarm</strong> to create one.</p>
-        </div>
-      </section>
-
-      <!-- ─── TIMETABLE ─── -->
-      <section id="sec-timetable" class="sec">
-        <div class="sec-header">
-          <div class="sec-title-block">
-            <h1><i class="fa fa-calendar-alt"></i> Timetables</h1>
-            <p>Create structured timetables for any purpose.</p>
-          </div>
-          <button class="fab-btn" onclick="openTimetableModal(null)" type="button"><i class="fa fa-plus"></i> <span>New Timetable</span></button>
-        </div>
-        <div id="timetable-grid" class="cards-grid"></div>
-        <div id="tt-empty" class="empty-state">
-          <i class="fa fa-calendar"></i>
-          <p>No timetables yet. Tap <strong>New Timetable</strong> to begin.</p>
-        </div>
-      </section>
-
-      <!-- ─── FILES ─── -->
-      <section id="sec-files" class="sec">
-        <div class="sec-header">
-          <div class="sec-title-block">
-            <h1><i class="fa fa-folder-open"></i> File Manager</h1>
-            <p>Organize documents, images, videos and audio in folders.</p>
-          </div>
-          <div class="sec-header-btns">
-            <button class="fab-btn" id="new-folder-btn" onclick="openFolderModal(null)" type="button">
-              <i class="fa fa-plus"></i> <span>New Folder</span>
-            </button>
-            <button class="fab-btn" id="new-subfolder-btn" onclick="openSubFolderModal()" style="display:none" type="button">
-              <i class="fa fa-folder-plus"></i> <span>New Folder</span>
-            </button>
-            <label class="fab-btn upload-label" id="upload-btn" style="display:none">
-              <i class="fa fa-upload"></i> <span>Upload</span>
-              <input type="file" id="file-input" multiple style="display:none" onchange="handleUpload(event)"/>
-            </label>
-          </div>
-        </div>
-        <div class="breadcrumb" id="breadcrumb" style="display:none">
-          <button onclick="goToFolders()" type="button"><i class="fa fa-home"></i> <span>Folders</span></button>
-          <i class="fa fa-chevron-right" id="bc-arrow1"></i>
-          <span id="bc-folder" style="cursor:pointer" onclick="goToParentFolder()"></span>
-          <i class="fa fa-chevron-right" id="bc-arrow2" style="display:none"></i>
-          <span id="bc-subfolder" style="display:none"></span>
-        </div>
-        <div id="folders-grid" class="folders-grid"></div>
-        <div id="files-grid" class="files-grid" style="display:none"></div>
-        <div id="files-empty" class="empty-state">
-          <i class="fa fa-folder"></i>
-          <p>No folders yet. Create one to start organizing.</p>
-        </div>
-      </section>
-
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>PlanTrack System</title>
+  <link rel="stylesheet" href="styles.css?v=14"/>
+  <link rel="manifest" href="manifest.json"/>
+  <meta name="theme-color" content="#f0c040"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="PlanTrack"/>
+  <link rel="apple-touch-icon" href="WhatsApp Image 2026-04-07 at 20.53.13.jpeg"/>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+</head>
+<body>
+
+<!-- ════════════ SPLASH SCREEN ════════════ -->
+<div id="splash-screen">
+  <div class="splash-content">
+    <div class="splash-logo">
+      <img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" alt="Logo"/>
+    </div>
+    <div class="splash-text">PlanTrack</div>
+    <div class="splash-loader"><span></span></div>
+  </div>
+</div>
+
+<!-- ════════════════════ AUTH SCREEN ════════════════════ -->
+<div id="auth-screen" style="display:none">
+  <div class="auth-bg">
+    <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+  </div>
+  <div class="auth-box">
+    <div class="auth-logo"><img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" class="logo-img" alt="Logo"/> PlanTrack</div>
+    <div class="auth-brand-line">CONCENTRATION TOOL</div>
+    <p class="auth-welcome" id="auth-welcome-text">Welcome back — sign in to continue</p>
+
+    <div class="auth-tabs" id="auth-tabs">
+      <button class="auth-tab active" onclick="switchTab('login')">Sign In</button>
+      <button class="auth-tab" onclick="switchTab('register')">Sign Up</button>
+    </div>
+
+    <!-- LOGIN -->
+    <div id="tab-login">
+      <div class="fg"><label>Username</label>
+        <input type="text" id="l-user" placeholder="Your username" autocomplete="username" inputmode="text"/></div>
+      <div class="fg"><label>Password</label>
+        <div class="pw-wrap">
+          <input type="password" id="l-pass" placeholder="Your password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()"/>
+          <button class="eye-btn" onclick="toggleEye('l-pass',this)" type="button"><i class="fa fa-eye"></i></button>
+        </div>
+      </div>
+      <button class="auth-btn" onclick="login()" type="button"><i class="fa fa-sign-in-alt"></i> Sign In</button>
+      <div class="auth-link-row"><button class="txt-btn" onclick="switchTab('forgot')" type="button">Forgot Password?</button></div>
+    </div>
+
+    <!-- REGISTER -->
+    <div id="tab-register" style="display:none">
+      <div class="fg"><label>Username</label>
+        <input type="text" id="r-user" placeholder="Choose a username" inputmode="text"/></div>
+      <div class="fg"><label>Email</label>
+        <input type="email" id="r-email" placeholder="Your email address" inputmode="email"/></div>
+      <div class="fg"><label>Password</label>
+        <div class="pw-wrap">
+          <input type="password" id="r-pass" placeholder="Create a password"/>
+          <button class="eye-btn" onclick="toggleEye('r-pass',this)" type="button"><i class="fa fa-eye"></i></button>
+        </div>
+      </div>
+      <button class="auth-btn" onclick="register()" type="button"><i class="fa fa-user-plus"></i> Create Account</button>
+    </div>
+
+    <!-- FORGOT -->
+    <div id="tab-forgot" style="display:none">
+      <p class="forgot-hint">Enter your email and we'll send a reset link.</p>
+      <div class="fg"><label>Email Address</label>
+        <input type="email" id="f-email" placeholder="your@email.com" inputmode="email"/></div>
+      <button class="auth-btn" onclick="sendReset()" type="button"><i class="fa fa-paper-plane"></i> Send Reset Link</button>
+      <div class="auth-link-row"><button class="txt-btn" onclick="switchTab('login')" type="button">← Back to Sign In</button></div>
+    </div>
+
+    <div id="auth-msg"></div>
+  </div>
+</div>
+
+<!-- ════════════════════ MAIN APP ════════════════════ -->
+<div id="app" style="display:none">
+
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <div class="tb-left">
+      <button class="hamburger" onclick="toggleSidebar()" type="button"><i class="fa fa-bars"></i></button>
+      <div class="tb-logo"><img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" class="tb-logo-img" alt="Logo"/> PlanTrack</div>
+    </div>
+    <div class="tb-right">
+      <button class="profile-btn" onclick="showSection('profile')" type="button" title="My Profile">
+        <div class="tb-avatar" id="topbar-avatar-display"></div>
+        <span id="disp-user" class="profile-name"></span>
+      </button>
+      <button class="logout-btn" onclick="logout()" type="button"><i class="fa fa-sign-out-alt"></i><span class="logout-text">Logout</span></button>
+    </div>
+  </header>
+
+  <!-- SIDEBAR OVERLAY (mobile) -->
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <div class="app-layout">
+
+    <!-- SIDEBAR -->
+    <nav class="sidebar" id="sidebar">
+      <div class="nav-label">NAVIGATION</div>
+      <button class="nav-btn active" id="nav-alarms" onclick="showSection('alarms')" type="button">
+        <i class="fa fa-bell"></i><span>Alarms</span>
+      </button>
+      <button class="nav-btn" id="nav-timetable" onclick="showSection('timetable')" type="button">
+        <i class="fa fa-calendar-alt"></i><span>Timetable</span>
+      </button>
+      <button class="nav-btn" id="nav-files" onclick="showSection('files')" type="button">
+        <i class="fa fa-folder-open"></i><span>File Manager</span>
+      </button>
+      <button class="nav-btn" id="nav-plans" onclick="showSection('plans')" type="button">
+        <i class="fa fa-tasks"></i><span>Plans &amp; Activities</span>
+      </button>
+      <button class="nav-btn" id="nav-focustimer" onclick="showSection('focustimer')" type="button">
+        <i class="fa fa-hourglass-half"></i><span>Focus Timer</span>
+      </button>
+      <button class="nav-btn" id="nav-profile" onclick="showSection('profile')" type="button">
+        <i class="fa fa-user"></i><span>My Profile</span>
+      </button>
+      <button class="nav-btn" id="install-app-btn" onclick="installPWA()" type="button" style="display:none">
+        <i class="fa fa-download"></i><span style="color:var(--accent)">Install App</span>
+      </button>
+      <div class="sidebar-footer">ABIMZZ &copy; 2026</div>
+    </nav>
+
+    <!-- CONTENT -->
+    <main class="content-area">
+
+      <!-- ─── ALARMS ─── -->
+      <section id="sec-alarms" class="sec active">
+        <div class="sec-header">
+          <div class="sec-title-block">
+            <h1><i class="fa fa-bell"></i> Alarms &amp; Reminders</h1>
+            <p>Set alarms manually or by voice. Upload your own music as alarm sound.</p>
+          </div>
+          <button class="fab-btn" onclick="openAlarmModal(null)" type="button"><i class="fa fa-plus"></i> <span>New Alarm</span></button>
+        </div>
+        <div id="alarms-grid" class="cards-grid"></div>
+        <div id="alarms-empty" class="empty-state">
+          <i class="fa fa-bell-slash"></i>
+          <p>No alarms yet. Tap <strong>New Alarm</strong> to create one.</p>
+        </div>
+      </section>
+
+      <!-- ─── TIMETABLE ─── -->
+      <section id="sec-timetable" class="sec">
+        <div class="sec-header">
+          <div class="sec-title-block">
+            <h1><i class="fa fa-calendar-alt"></i> Timetables</h1>
+            <p>Create structured timetables for any purpose.</p>
+          </div>
+          <button class="fab-btn" onclick="openTimetableModal(null)" type="button"><i class="fa fa-plus"></i> <span>New Timetable</span></button>
+        </div>
+        <div id="timetable-grid" class="cards-grid"></div>
+        <div id="tt-empty" class="empty-state">
+          <i class="fa fa-calendar"></i>
+          <p>No timetables yet. Tap <strong>New Timetable</strong> to begin.</p>
+        </div>
+      </section>
+
+      <!-- ─── FILES ─── -->
+      <section id="sec-files" class="sec">
+        <div class="sec-header">
+          <div class="sec-title-block">
+            <h1><i class="fa fa-folder-open"></i> File Manager</h1>
+            <p>Organize documents, images, videos and audio in folders.</p>
+          </div>
+          <div class="sec-header-btns">
+            <button class="fab-btn" id="new-folder-btn" onclick="openFolderModal(null)" type="button">
+              <i class="fa fa-plus"></i> <span>New Folder</span>
+            </button>
+            <button class="fab-btn" id="new-subfolder-btn" onclick="openSubFolderModal()" style="display:none" type="button">
+              <i class="fa fa-folder-plus"></i> <span>New Folder</span>
+            </button>
+            <label class="fab-btn upload-label" id="upload-btn" style="display:none">
+              <i class="fa fa-upload"></i> <span>Upload</span>
+              <input type="file" id="file-input" multiple style="display:none" onchange="handleUpload(event)"/>
+            </label>
+          </div>
+        </div>
+        <div class="breadcrumb" id="breadcrumb" style="display:none">
+          <button onclick="goToFolders()" type="button"><i class="fa fa-home"></i> <span>Folders</span></button>
+          <i class="fa fa-chevron-right" id="bc-arrow1"></i>
+          <span id="bc-folder" style="cursor:pointer" onclick="goToParentFolder()"></span>
+          <i class="fa fa-chevron-right" id="bc-arrow2" style="display:none"></i>
+          <span id="bc-subfolder" style="display:none"></span>
+        </div>
+        <div id="folders-grid" class="folders-grid"></div>
+        <div id="files-grid" class="files-grid" style="display:none"></div>
+        <div id="files-empty" class="empty-state">
+          <i class="fa fa-folder"></i>
+          <p>No folders yet. Create one to start organizing.</p>
+        </div>
+      </section>
+
       <!-- ─── PLANS & ACTIVITIES ─── -->
       <section id="sec-plans" class="sec">
         <div class="sec-header">
@@ -228,467 +228,467 @@
         </div>
       </section>
 
-      <!-- ─── FOCUS TIMER ─── -->
-      <section id="sec-focustimer" class="sec">
-        <div class="sec-header">
-          <div class="sec-title-block">
-            <h1><i class="fa fa-hourglass-half"></i> Focus Timer</h1>
-            <p>Enter a deep work state with a dedicated focus countdown.</p>
-          </div>
-        </div>
-
-        <div class="timer-container">
-          <div class="timer-display-wrap">
-            <svg class="timer-svg" viewBox="0 0 100 100">
-              <circle class="timer-bg-circle" cx="50" cy="50" r="45"></circle>
-              <circle class="timer-progress-circle" id="timer-progress" cx="50" cy="50" r="45"></circle>
-            </svg>
-            <div class="timer-text" id="timer-time">25:00</div>
-          </div>
-
-          <div class="timer-controls">
-            <div class="quick-starts">
-              <button class="btn-outline-sm" onclick="setFocusTimer(15)">15m</button>
-              <button class="btn-outline-sm" onclick="setFocusTimer(25)">25m</button>
-              <button class="btn-outline-sm" onclick="setFocusTimer(45)">45m</button>
-              <button class="btn-outline-sm" onclick="setFocusTimer(60)">60m</button>
-              <button class="btn-outline-sm" onclick="setFocusTimer(90)">90m</button>
-            </div>
-
-            <!-- Custom Time Input -->
-            <div class="timer-custom-row">
-              <label class="timer-custom-label"><i class="fa fa-sliders-h"></i> Custom Time</label>
-              <div class="timer-custom-inputs">
-                <div class="timer-custom-field">
-                  <input type="number" id="custom-timer-hours" min="0" max="23" value="0" placeholder="0"/>
-                  <span class="timer-unit-label">hrs</span>
-                </div>
-                <span class="timer-colon">:</span>
-                <div class="timer-custom-field">
-                  <input type="number" id="custom-timer-mins" min="0" max="59" value="25" placeholder="25"/>
-                  <span class="timer-unit-label">min</span>
-                </div>
-                <span class="timer-colon">:</span>
-                <div class="timer-custom-field">
-                  <input type="number" id="custom-timer-secs" min="0" max="59" value="0" placeholder="0"/>
-                  <span class="timer-unit-label">sec</span>
-                </div>
-                <button class="btn-outline-sm" onclick="applyCustomFocusTimer()" type="button"><i class="fa fa-check"></i> Set</button>
-              </div>
-            </div>
-
-            <!-- Completion Sound Picker -->
-            <div class="timer-sound-row">
-              <div class="timer-sound-row-header">
-                <label class="timer-custom-label"><i class="fa fa-music"></i> Completion Sound</label>
-                <label class="timer-upload-btn" title="Upload your own music">
-                  <i class="fa fa-upload"></i> Upload Music
-                  <input type="file" accept="audio/*" style="display:none" onchange="uploadTimerMusic(event)"/>
-                </label>
-              </div>
-              <div class="timer-sound-picker" id="timer-sound-picker">
-                <!-- Built by JS -->
-              </div>
-            </div>
-
-            <div class="timer-actions">
-              <button class="btn-save" id="timer-toggle-btn" onclick="toggleFocusTimer()">
-                <i class="fa fa-play"></i> Start Focusing
-              </button>
-              <button class="btn-cancel" onclick="resetFocusTimer()">
-                <i class="fa fa-redo"></i> Reset
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div class="focus-stats-mini">
-          <div class="focus-stat">
-            <span class="lbl">Sessions Today</span>
-            <span class="val" id="focus-sessions-count">0</span>
-          </div>
-          <div class="focus-stat">
-            <span class="lbl">Total Focus Time</span>
-            <span class="val" id="focus-total-time">0m</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- ─── PROFILE ─── -->
-      <section id="sec-profile" class="sec">
-        <div class="sec-header">
-          <div class="sec-title-block">
-            <h1><i class="fa fa-user"></i> My Profile</h1>
-            <p>View and manage your account details.</p>
-          </div>
-        </div>
-        <div class="profile-card">
-          <div class="profile-avatar-wrap">
-            <div class="profile-avatar" id="profile-avatar-display">A</div>
-            <label class="avatar-upload-btn" title="Upload Picture">
-              <i class="fa fa-camera"></i>
-              <input type="file" id="avatar-input" accept="image/*" style="display:none" onchange="uploadAvatar(event)"/>
-            </label>
-          </div>
-          <div class="profile-info">
-            <div class="profile-username" id="profile-username-display"></div>
-            <div class="profile-email" id="profile-email-display"></div>
-            <div class="profile-joined" id="profile-joined-display"></div>
-            <button class="btn-outline-sm" style="margin-top:10px" onclick="openEditProfileModal()" type="button"><i class="fa fa-edit"></i> Edit Username</button>
-          </div>
-        </div>
-
-        <div class="profile-stats-grid">
-          <div class="profile-stat-card">
-            <i class="fa fa-bell" style="color:var(--accent)"></i>
-            <div class="stat-number" id="stat-alarms">0</div>
-            <div class="stat-label">Alarms</div>
-          </div>
-          <div class="profile-stat-card">
-            <i class="fa fa-calendar-alt" style="color:var(--blue)"></i>
-            <div class="stat-number" id="stat-timetables">0</div>
-            <div class="stat-label">Timetables</div>
-          </div>
-          <div class="profile-stat-card">
-            <i class="fa fa-folder" style="color:var(--accent2)"></i>
-            <div class="stat-number" id="stat-folders">0</div>
-            <div class="stat-label">Folders</div>
-          </div>
-          <div class="profile-stat-card">
-            <i class="fa fa-tasks" style="color:var(--green)"></i>
-            <div class="stat-number" id="stat-plans">0</div>
-            <div class="stat-label">Plans</div>
-          </div>
-        </div>
-
-        <div class="profile-actions">
-          <button class="profile-action-btn" onclick="openChangePasswordModal()" type="button">
-            <i class="fa fa-lock"></i> Change Password
-          </button>
-          <button class="profile-action-btn danger" onclick="confirmLogout()" type="button">
-            <i class="fa fa-sign-out-alt"></i> Sign Out
-          </button>
-        </div>
-      </section>
-
-    </main>
-  </div>
-</div>
-
-<!-- ════════════════════ MODALS ════════════════════ -->
-
-<!-- ALARM MODAL -->
-<div id="modal-alarm" class="overlay" style="display:none">
-  <div class="modal">
-    <div class="mh">
-      <h2 id="alarm-modal-title"><i class="fa fa-bell"></i> New Alarm</h2>
-      <button class="mclose" onclick="closeModal('modal-alarm')" type="button"><i class="fa fa-times"></i></button>
-    </div>
-    <div class="mb">
-      <div class="form-row2">
-        <div class="fg"><label>Time <span class="req">*</span></label><input type="time" id="a-time"/></div>
-        <div class="fg"><label>Date (optional)</label><input type="date" id="a-date"/></div>
-        <div class="fg"><label>Repeat</label>
-          <select id="a-repeat">
-            <option value="none">No Repeat</option>
-            <option value="daily">Daily</option>
-            <option value="weekdays">Weekdays</option>
-            <option value="weekends">Weekends</option>
-            <option value="weekly">Weekly</option>
-          </select>
-        </div>
-      </div>
-      <div class="fg">
-        <label>Label / Reason <span class="req">*</span></label>
-        <div class="voice-row">
-          <input type="text" id="a-label" placeholder="e.g. Take medicine, Team meeting..."/>
-          <button class="voice-btn" onclick="startVoice('a-label','alarm-voice-status')" title="Speak to fill" type="button">
-            <i class="fa fa-microphone"></i>
-          </button>
-        </div>
-        <span class="voice-status" id="alarm-voice-status"></span>
-      </div>
-      <div class="fg">
-        <label><i class="fa fa-music"></i> Choose Alarm Sound <span class="req">*</span></label>
-        <div class="sound-grid" id="sound-grid"></div>
-      </div>
-    </div>
-    <div class="mf">
-      <button class="btn-cancel" onclick="closeModal('modal-alarm')" type="button">Cancel</button>
-      <button class="btn-save" onclick="saveAlarm()" type="button"><i class="fa fa-save"></i> Save Alarm</button>
-    </div>
-  </div>
-</div>
-
-<!-- TIMETABLE MODAL STEP 1 -->
-<div id="modal-tt1" class="overlay" style="display:none">
-  <div class="modal modal-sm">
-    <div class="mh">
-      <h2><i class="fa fa-calendar-alt"></i> New Timetable</h2>
-      <button class="mclose" onclick="closeModal('modal-tt1')" type="button"><i class="fa fa-times"></i></button>
-    </div>
-    <div class="mb">
-      <p class="question-text">What kind of timetable do you want to create?</p>
-      <div class="fg">
-        <label>Timetable Type / Name</label>
-        <div class="voice-row">
-          <input type="text" id="tt-type" placeholder="e.g. School Schedule, Workout Routine..."/>
-          <button class="voice-btn" onclick="startVoice('tt-type','tt-voice-status')" title="Speak" type="button">
-            <i class="fa fa-microphone"></i>
-          </button>
-        </div>
-        <span class="voice-status" id="tt-voice-status"></span>
-      </div>
-    </div>
-    <div class="mf">
-      <button class="btn-cancel" onclick="closeModal('modal-tt1')" type="button">Cancel</button>
-      <button class="btn-save" onclick="goTTStep2()" type="button">Next <i class="fa fa-arrow-right"></i></button>
-    </div>
-  </div>
-</div>
-
-<!-- TIMETABLE MODAL STEP 2 -->
-<div id="modal-tt2" class="overlay" style="display:none">
-  <div class="modal modal-wide">
-    <div class="mh">
-      <h2 id="tt2-heading"></h2>
-      <button class="mclose" onclick="closeModal('modal-tt2')" type="button"><i class="fa fa-times"></i></button>
-    </div>
-    <div class="mb">
-      <div class="tt-type-badge" id="tt-type-badge"></div>
-      <div class="tt-columns-row">
-        <div class="fg" style="flex:1">
-          <label>Column Headers (comma separated)</label>
-          <input type="text" id="tt-cols" placeholder="e.g. Day, Subject, Time, Room" value="Day,Subject,Time,Venue"/>
-        </div>
-        <button class="btn-outline-sm" onclick="buildTTTable()" type="button"><i class="fa fa-table"></i> Apply</button>
-      </div>
-      <div class="tt-table-wrap" id="tt-table-wrap"></div>
-      <button class="btn-outline-sm" style="margin-top:10px" onclick="addTTRow()" type="button"><i class="fa fa-plus"></i> Add Row</button>
-    </div>
-    <div class="mf">
-      <button class="btn-cancel" onclick="backToTT1()" type="button"><i class="fa fa-arrow-left"></i> Back</button>
-      <button class="btn-save" onclick="saveTimetable()" type="button"><i class="fa fa-save"></i> Save Timetable</button>
-    </div>
-  </div>
-</div>
-
-<!-- TIMETABLE VIEW MODAL -->
-<div id="modal-tt-view" class="overlay" style="display:none">
-  <div class="modal modal-wide">
-    <div class="mh">
-      <h2 id="ttv-heading"></h2>
-      <button class="mclose" onclick="closeModal('modal-tt-view')" type="button"><i class="fa fa-times"></i></button>
-    </div>
-    <div class="mb" id="ttv-body"></div>
-    <div class="mf"><button class="btn-save" onclick="closeModal('modal-tt-view')" type="button">Close</button></div>
-  </div>
-</div>
-
-<!-- FOLDER MODAL -->
-<div id="modal-folder" class="overlay" style="display:none">
-  <div class="modal modal-sm">
-    <div class="mh">
-      <h2 id="folder-modal-title"><i class="fa fa-folder-plus"></i> New Folder</h2>
-      <button class="mclose" onclick="closeModal('modal-folder')" type="button"><i class="fa fa-times"></i></button>
-    </div>
-    <div class="mb">
-      <div class="fg">
-        <label>Folder Name</label>
-        <input type="text" id="folder-name" placeholder="e.g. Work Docs, My Photos, Videos..."/>
-      </div>
-      <input type="hidden" id="folder-parent-id" value=""/>
-    </div>
-    <div class="mf">
-      <button class="btn-cancel" onclick="closeModal('modal-folder')" type="button">Cancel</button>
-      <button class="btn-save" onclick="saveFolder()" type="button"><i class="fa fa-save"></i> Create Folder</button>
-    </div>
-  </div>
-</div>
-
-<!-- PLAN MODAL -->
-<div id="modal-plan" class="overlay" style="display:none">
-  <div class="modal">
-    <div class="mh">
-      <h2 id="plan-modal-title"><i class="fa fa-tasks"></i> New Plan</h2>
-      <button class="mclose" onclick="closeModal('modal-plan')" type="button"><i class="fa fa-times"></i></button>
-    </div>
-    <div class="mb">
-      <div class="fg">
-        <label>Plan Title <span class="req">*</span></label>
-        <input type="text" id="p-title" placeholder="e.g. Morning Routine, Q1 Goals..."/>
-      </div>
-      <div class="form-row2">
-        <div class="fg">
-          <label>Duration Type <span class="req">*</span></label>
-          <select id="p-duration">
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-            <option value="yearly">Yearly</option>
-          </select>
-        </div>
-        <div class="fg"><label>Start Date <span class="req">*</span></label><input type="date" id="p-start"/></div>
-        <div class="fg"><label>End Date <span class="req">*</span></label><input type="date" id="p-end"/></div>
-      </div>
-      <div class="form-row2">
-        <div class="fg">
-          <label><i class="fa fa-bell"></i> Reminder Time</label>
-          <input type="time" id="p-reminder-time" value="08:00"/>
-        </div>
-        <div class="fg">
-          <label>Remind Me</label>
-          <select id="p-reminder-days">
-            <option value="daily">Every Day</option>
-            <option value="weekdays">Weekdays Only</option>
-            <option value="weekends">Weekends Only</option>
-            <option value="once">Once (on start date)</option>
-          </select>
-        </div>
-      </div>
-      <div class="fg">
-        <label>Activities / Tasks <span class="req">*</span></label>
-        <div id="activities-container"></div>
-        <button class="btn-outline-sm" style="margin-top:8px" onclick="addActivityInput()" type="button">
-          <i class="fa fa-plus"></i> Add Activity
-        </button>
-      </div>
-    </div>
-    <div class="mf">
-      <button class="btn-cancel" onclick="closeModal('modal-plan')" type="button">Cancel</button>
-      <button class="btn-save" onclick="savePlan()" type="button"><i class="fa fa-save"></i> Save Plan</button>
-    </div>
-  </div>
-</div>
-
-<!-- CONFIRM MODAL -->
-<div id="modal-confirm" class="overlay" style="display:none">
-  <div class="modal modal-xs">
-    <div class="mh">
-      <h2><i class="fa fa-exclamation-triangle" style="color:var(--red)"></i> Confirm</h2>
-      <button class="mclose" onclick="closeModal('modal-confirm')" type="button"><i class="fa fa-times"></i></button>
-    </div>
-    <div class="mb"><p id="confirm-text" style="color:var(--text2);line-height:1.6"></p></div>
-    <div class="mf">
-      <button class="btn-cancel" onclick="closeModal('modal-confirm')" type="button">Cancel</button>
-      <button class="btn-danger" id="confirm-ok" type="button"><i class="fa fa-check"></i> Confirm</button>
-    </div>
-  </div>
-</div>
-
-<!-- CHANGE PASSWORD MODAL -->
-<div id="modal-password" class="overlay" style="display:none">
-  <div class="modal modal-sm">
-    <div class="mh">
-      <h2><i class="fa fa-lock"></i> Change Password</h2>
-      <button class="mclose" onclick="closeModal('modal-password')" type="button"><i class="fa fa-times"></i></button>
-    </div>
-    <div class="mb">
-      <div class="fg">
-        <label>New Password</label>
-        <div class="pw-wrap">
-          <input type="password" id="new-password" placeholder="Enter new password"/>
-          <button class="eye-btn" onclick="toggleEye('new-password',this)" type="button"><i class="fa fa-eye"></i></button>
-        </div>
-      </div>
-      <div class="fg">
-        <label>Confirm New Password</label>
-        <div class="pw-wrap">
-          <input type="password" id="confirm-password" placeholder="Confirm new password"/>
-          <button class="eye-btn" onclick="toggleEye('confirm-password',this)" type="button"><i class="fa fa-eye"></i></button>
-        </div>
-      </div>
-      <div id="password-msg"></div>
-    </div>
-    <div class="mf">
-      <button class="btn-cancel" onclick="closeModal('modal-password')" type="button">Cancel</button>
-      <button class="btn-save" onclick="changePassword()" type="button"><i class="fa fa-save"></i> Update Password</button>
-    </div>
-  </div>
-</div>
-
-<!-- EDIT PROFILE MODAL -->
-<div id="modal-edit-profile" class="overlay" style="display:none">
-  <div class="modal modal-sm">
-    <div class="mh">
-      <h2><i class="fa fa-user-edit"></i> Edit Profile</h2>
-      <button class="mclose" onclick="closeModal('modal-edit-profile')" type="button"><i class="fa fa-times"></i></button>
-    </div>
-    <div class="mb">
-      <div class="fg">
-        <label>New Username</label>
-        <input type="text" id="edit-username-input" placeholder="Enter new username"/>
-      </div>
-    </div>
-    <div class="mf">
-      <button class="btn-cancel" onclick="closeModal('modal-edit-profile')" type="button">Cancel</button>
-      <button class="btn-save" onclick="saveProfile()" type="button"><i class="fa fa-save"></i> Save Changes</button>
-    </div>
-  </div>
-</div>
-
-<!-- ALARM RINGING -->
-<div id="alarm-ring" style="display:none">
-  <div class="ring-box">
-    <div class="ring-anim">⏰</div>
-    <h2 id="ring-label">Alarm!</h2>
-    <p id="ring-time"></p>
-    <div class="ring-actions" style="display:flex;gap:12px;justify-content:center;margin-top:20px;">
-      <button class="btn-cancel" onclick="snoozeAlarm()" type="button"><i class="fa fa-bed"></i> Snooze</button>
-      <button class="btn-save" onclick="dismissAlarm()" type="button"><i class="fa fa-stop-circle"></i> Dismiss</button>
-    </div>
-  </div>
-</div>
-
-<!-- ORIENTATION OVERLAY -->
-<div id="orientation-overlay">
-  <div class="orientation-box">
-    <i class="fa fa-mobile-alt fa-4x" style="animation: tiltMobile 2s infinite ease-in-out; color: var(--accent);"></i>
-    <h2 style="margin-top:20px;">Portrait Mode Required</h2>
-    <p style="color:var(--text2);margin-top:10px;">Please rotate your device back to portrait mode to continue using PlanTrack.</p>
-  </div>
-</div>
-
-<!-- UPLOAD PROGRESS -->
-<div id="upload-progress-overlay" class="overlay" style="display:none; z-index:10001;">
-  <div class="modal modal-xs" style="text-align:center; padding:30px 20px;">
-    <div class="up-icon" style="font-size:3rem; color:var(--accent); margin-bottom:16px;">
-      <i class="fa fa-cloud-upload-alt"></i>
-    </div>
-    <h3 style="font-family:'Playfair Display',serif; margin-bottom:8px;">Transferring Data</h3>
-    <p class="up-status" style="font-size:.85rem; color:var(--text2); margin-bottom:12px;">Preparing...</p>
-    
-    <div class="up-bar-wrap" style="height:8px; background:var(--surface3); border-radius:99px; overflow:hidden; margin-bottom:12px;">
-      <div class="up-fill" style="height:100%; background:linear-gradient(90deg, var(--accent), var(--accent2)); width:0%; transition:width 0.1s linear;"></div>
-    </div>
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <div class="up-text" style="font-size:.9rem; font-weight:700; color:var(--accent);">0%</div>
-      <div class="up-detail" style="font-size:.7rem; color:var(--text3); font-weight:600;">0 MB / 0 MB</div>
-    </div>
-  </div>
-</div>
-
-<!-- SHARE CARD TEMPLATE (HIDDEN) -->
-<div id="share-card-wrap" style="position:fixed; left:-9999px; top:-9999px;">
-  <div id="share-card" class="share-card">
-    <div class="sc-logo">
-      <img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" alt="Logo"/>
-      <span>PlanTrack</span>
-    </div>
-    <div id="sc-content"></div>
-    <div class="sc-footer">
-      <div class="sc-tagline">Efficiency at its peak — Created with PlanTrack</div>
-    </div>
-  </div>
-</div>
-
-<!-- TOAST -->
-<div id="toast" class="toast"></div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="config.js?v=13"></script>
-<script src="offline.js?v=13"></script>
-<script src="app.js?v=13"></script>
-</body>
-</html>
+      <!-- ─── FOCUS TIMER ─── -->
+      <section id="sec-focustimer" class="sec">
+        <div class="sec-header">
+          <div class="sec-title-block">
+            <h1><i class="fa fa-hourglass-half"></i> Focus Timer</h1>
+            <p>Enter a deep work state with a dedicated focus countdown.</p>
+          </div>
+        </div>
+
+        <div class="timer-container">
+          <div class="timer-display-wrap">
+            <svg class="timer-svg" viewBox="0 0 100 100">
+              <circle class="timer-bg-circle" cx="50" cy="50" r="45"></circle>
+              <circle class="timer-progress-circle" id="timer-progress" cx="50" cy="50" r="45"></circle>
+            </svg>
+            <div class="timer-text" id="timer-time">25:00</div>
+          </div>
+
+          <div class="timer-controls">
+            <div class="quick-starts">
+              <button class="btn-outline-sm" onclick="setFocusTimer(15)">15m</button>
+              <button class="btn-outline-sm" onclick="setFocusTimer(25)">25m</button>
+              <button class="btn-outline-sm" onclick="setFocusTimer(45)">45m</button>
+              <button class="btn-outline-sm" onclick="setFocusTimer(60)">60m</button>
+              <button class="btn-outline-sm" onclick="setFocusTimer(90)">90m</button>
+            </div>
+
+            <!-- Custom Time Input -->
+            <div class="timer-custom-row">
+              <label class="timer-custom-label"><i class="fa fa-sliders-h"></i> Custom Time</label>
+              <div class="timer-custom-inputs">
+                <div class="timer-custom-field">
+                  <input type="number" id="custom-timer-hours" min="0" max="23" value="0" placeholder="0"/>
+                  <span class="timer-unit-label">hrs</span>
+                </div>
+                <span class="timer-colon">:</span>
+                <div class="timer-custom-field">
+                  <input type="number" id="custom-timer-mins" min="0" max="59" value="25" placeholder="25"/>
+                  <span class="timer-unit-label">min</span>
+                </div>
+                <span class="timer-colon">:</span>
+                <div class="timer-custom-field">
+                  <input type="number" id="custom-timer-secs" min="0" max="59" value="0" placeholder="0"/>
+                  <span class="timer-unit-label">sec</span>
+                </div>
+                <button class="btn-outline-sm" onclick="applyCustomFocusTimer()" type="button"><i class="fa fa-check"></i> Set</button>
+              </div>
+            </div>
+
+            <!-- Completion Sound Picker -->
+            <div class="timer-sound-row">
+              <div class="timer-sound-row-header">
+                <label class="timer-custom-label"><i class="fa fa-music"></i> Completion Sound</label>
+                <label class="timer-upload-btn" title="Upload your own music">
+                  <i class="fa fa-upload"></i> Upload Music
+                  <input type="file" accept="audio/*" style="display:none" onchange="uploadTimerMusic(event)"/>
+                </label>
+              </div>
+              <div class="timer-sound-picker" id="timer-sound-picker">
+                <!-- Built by JS -->
+              </div>
+            </div>
+
+            <div class="timer-actions">
+              <button class="btn-save" id="timer-toggle-btn" onclick="toggleFocusTimer()">
+                <i class="fa fa-play"></i> Start Focusing
+              </button>
+              <button class="btn-cancel" onclick="resetFocusTimer()">
+                <i class="fa fa-redo"></i> Reset
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="focus-stats-mini">
+          <div class="focus-stat">
+            <span class="lbl">Sessions Today</span>
+            <span class="val" id="focus-sessions-count">0</span>
+          </div>
+          <div class="focus-stat">
+            <span class="lbl">Total Focus Time</span>
+            <span class="val" id="focus-total-time">0m</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── PROFILE ─── -->
+      <section id="sec-profile" class="sec">
+        <div class="sec-header">
+          <div class="sec-title-block">
+            <h1><i class="fa fa-user"></i> My Profile</h1>
+            <p>View and manage your account details.</p>
+          </div>
+        </div>
+        <div class="profile-card">
+          <div class="profile-avatar-wrap">
+            <div class="profile-avatar" id="profile-avatar-display">A</div>
+            <label class="avatar-upload-btn" title="Upload Picture">
+              <i class="fa fa-camera"></i>
+              <input type="file" id="avatar-input" accept="image/*" style="display:none" onchange="uploadAvatar(event)"/>
+            </label>
+          </div>
+          <div class="profile-info">
+            <div class="profile-username" id="profile-username-display"></div>
+            <div class="profile-email" id="profile-email-display"></div>
+            <div class="profile-joined" id="profile-joined-display"></div>
+            <button class="btn-outline-sm" style="margin-top:10px" onclick="openEditProfileModal()" type="button"><i class="fa fa-edit"></i> Edit Username</button>
+          </div>
+        </div>
+
+        <div class="profile-stats-grid">
+          <div class="profile-stat-card">
+            <i class="fa fa-bell" style="color:var(--accent)"></i>
+            <div class="stat-number" id="stat-alarms">0</div>
+            <div class="stat-label">Alarms</div>
+          </div>
+          <div class="profile-stat-card">
+            <i class="fa fa-calendar-alt" style="color:var(--blue)"></i>
+            <div class="stat-number" id="stat-timetables">0</div>
+            <div class="stat-label">Timetables</div>
+          </div>
+          <div class="profile-stat-card">
+            <i class="fa fa-folder" style="color:var(--accent2)"></i>
+            <div class="stat-number" id="stat-folders">0</div>
+            <div class="stat-label">Folders</div>
+          </div>
+          <div class="profile-stat-card">
+            <i class="fa fa-tasks" style="color:var(--green)"></i>
+            <div class="stat-number" id="stat-plans">0</div>
+            <div class="stat-label">Plans</div>
+          </div>
+        </div>
+
+        <div class="profile-actions">
+          <button class="profile-action-btn" onclick="openChangePasswordModal()" type="button">
+            <i class="fa fa-lock"></i> Change Password
+          </button>
+          <button class="profile-action-btn danger" onclick="confirmLogout()" type="button">
+            <i class="fa fa-sign-out-alt"></i> Sign Out
+          </button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- ════════════════════ MODALS ════════════════════ -->
+
+<!-- ALARM MODAL -->
+<div id="modal-alarm" class="overlay" style="display:none">
+  <div class="modal">
+    <div class="mh">
+      <h2 id="alarm-modal-title"><i class="fa fa-bell"></i> New Alarm</h2>
+      <button class="mclose" onclick="closeModal('modal-alarm')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb">
+      <div class="form-row2">
+        <div class="fg"><label>Time <span class="req">*</span></label><input type="time" id="a-time"/></div>
+        <div class="fg"><label>Date (optional)</label><input type="date" id="a-date"/></div>
+        <div class="fg"><label>Repeat</label>
+          <select id="a-repeat">
+            <option value="none">No Repeat</option>
+            <option value="daily">Daily</option>
+            <option value="weekdays">Weekdays</option>
+            <option value="weekends">Weekends</option>
+            <option value="weekly">Weekly</option>
+          </select>
+        </div>
+      </div>
+      <div class="fg">
+        <label>Label / Reason <span class="req">*</span></label>
+        <div class="voice-row">
+          <input type="text" id="a-label" placeholder="e.g. Take medicine, Team meeting..."/>
+          <button class="voice-btn" onclick="startVoice('a-label','alarm-voice-status')" title="Speak to fill" type="button">
+            <i class="fa fa-microphone"></i>
+          </button>
+        </div>
+        <span class="voice-status" id="alarm-voice-status"></span>
+      </div>
+      <div class="fg">
+        <label><i class="fa fa-music"></i> Choose Alarm Sound <span class="req">*</span></label>
+        <div class="sound-grid" id="sound-grid"></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn-cancel" onclick="closeModal('modal-alarm')" type="button">Cancel</button>
+      <button class="btn-save" onclick="saveAlarm()" type="button"><i class="fa fa-save"></i> Save Alarm</button>
+    </div>
+  </div>
+</div>
+
+<!-- TIMETABLE MODAL STEP 1 -->
+<div id="modal-tt1" class="overlay" style="display:none">
+  <div class="modal modal-sm">
+    <div class="mh">
+      <h2><i class="fa fa-calendar-alt"></i> New Timetable</h2>
+      <button class="mclose" onclick="closeModal('modal-tt1')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb">
+      <p class="question-text">What kind of timetable do you want to create?</p>
+      <div class="fg">
+        <label>Timetable Type / Name</label>
+        <div class="voice-row">
+          <input type="text" id="tt-type" placeholder="e.g. School Schedule, Workout Routine..."/>
+          <button class="voice-btn" onclick="startVoice('tt-type','tt-voice-status')" title="Speak" type="button">
+            <i class="fa fa-microphone"></i>
+          </button>
+        </div>
+        <span class="voice-status" id="tt-voice-status"></span>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn-cancel" onclick="closeModal('modal-tt1')" type="button">Cancel</button>
+      <button class="btn-save" onclick="goTTStep2()" type="button">Next <i class="fa fa-arrow-right"></i></button>
+    </div>
+  </div>
+</div>
+
+<!-- TIMETABLE MODAL STEP 2 -->
+<div id="modal-tt2" class="overlay" style="display:none">
+  <div class="modal modal-wide">
+    <div class="mh">
+      <h2 id="tt2-heading"></h2>
+      <button class="mclose" onclick="closeModal('modal-tt2')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb">
+      <div class="tt-type-badge" id="tt-type-badge"></div>
+      <div class="tt-columns-row">
+        <div class="fg" style="flex:1">
+          <label>Column Headers (comma separated)</label>
+          <input type="text" id="tt-cols" placeholder="e.g. Day, Subject, Time, Room" value="Day,Subject,Time,Venue"/>
+        </div>
+        <button class="btn-outline-sm" onclick="buildTTTable()" type="button"><i class="fa fa-table"></i> Apply</button>
+      </div>
+      <div class="tt-table-wrap" id="tt-table-wrap"></div>
+      <button class="btn-outline-sm" style="margin-top:10px" onclick="addTTRow()" type="button"><i class="fa fa-plus"></i> Add Row</button>
+    </div>
+    <div class="mf">
+      <button class="btn-cancel" onclick="backToTT1()" type="button"><i class="fa fa-arrow-left"></i> Back</button>
+      <button class="btn-save" onclick="saveTimetable()" type="button"><i class="fa fa-save"></i> Save Timetable</button>
+    </div>
+  </div>
+</div>
+
+<!-- TIMETABLE VIEW MODAL -->
+<div id="modal-tt-view" class="overlay" style="display:none">
+  <div class="modal modal-wide">
+    <div class="mh">
+      <h2 id="ttv-heading"></h2>
+      <button class="mclose" onclick="closeModal('modal-tt-view')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb" id="ttv-body"></div>
+    <div class="mf"><button class="btn-save" onclick="closeModal('modal-tt-view')" type="button">Close</button></div>
+  </div>
+</div>
+
+<!-- FOLDER MODAL -->
+<div id="modal-folder" class="overlay" style="display:none">
+  <div class="modal modal-sm">
+    <div class="mh">
+      <h2 id="folder-modal-title"><i class="fa fa-folder-plus"></i> New Folder</h2>
+      <button class="mclose" onclick="closeModal('modal-folder')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb">
+      <div class="fg">
+        <label>Folder Name</label>
+        <input type="text" id="folder-name" placeholder="e.g. Work Docs, My Photos, Videos..."/>
+      </div>
+      <input type="hidden" id="folder-parent-id" value=""/>
+    </div>
+    <div class="mf">
+      <button class="btn-cancel" onclick="closeModal('modal-folder')" type="button">Cancel</button>
+      <button class="btn-save" onclick="saveFolder()" type="button"><i class="fa fa-save"></i> Create Folder</button>
+    </div>
+  </div>
+</div>
+
+<!-- PLAN MODAL -->
+<div id="modal-plan" class="overlay" style="display:none">
+  <div class="modal">
+    <div class="mh">
+      <h2 id="plan-modal-title"><i class="fa fa-tasks"></i> New Plan</h2>
+      <button class="mclose" onclick="closeModal('modal-plan')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb">
+      <div class="fg">
+        <label>Plan Title <span class="req">*</span></label>
+        <input type="text" id="p-title" placeholder="e.g. Morning Routine, Q1 Goals..."/>
+      </div>
+      <div class="form-row2">
+        <div class="fg">
+          <label>Duration Type <span class="req">*</span></label>
+          <select id="p-duration">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+          </select>
+        </div>
+        <div class="fg"><label>Start Date <span class="req">*</span></label><input type="date" id="p-start"/></div>
+        <div class="fg"><label>End Date <span class="req">*</span></label><input type="date" id="p-end"/></div>
+      </div>
+      <div class="form-row2">
+        <div class="fg">
+          <label><i class="fa fa-bell"></i> Reminder Time</label>
+          <input type="time" id="p-reminder-time" value="08:00"/>
+        </div>
+        <div class="fg">
+          <label>Remind Me</label>
+          <select id="p-reminder-days">
+            <option value="daily">Every Day</option>
+            <option value="weekdays">Weekdays Only</option>
+            <option value="weekends">Weekends Only</option>
+            <option value="once">Once (on start date)</option>
+          </select>
+        </div>
+      </div>
+      <div class="fg">
+        <label>Activities / Tasks <span class="req">*</span></label>
+        <div id="activities-container"></div>
+        <button class="btn-outline-sm" style="margin-top:8px" onclick="addActivityInput()" type="button">
+          <i class="fa fa-plus"></i> Add Activity
+        </button>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn-cancel" onclick="closeModal('modal-plan')" type="button">Cancel</button>
+      <button class="btn-save" onclick="savePlan()" type="button"><i class="fa fa-save"></i> Save Plan</button>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIRM MODAL -->
+<div id="modal-confirm" class="overlay" style="display:none">
+  <div class="modal modal-xs">
+    <div class="mh">
+      <h2><i class="fa fa-exclamation-triangle" style="color:var(--red)"></i> Confirm</h2>
+      <button class="mclose" onclick="closeModal('modal-confirm')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb"><p id="confirm-text" style="color:var(--text2);line-height:1.6"></p></div>
+    <div class="mf">
+      <button class="btn-cancel" onclick="closeModal('modal-confirm')" type="button">Cancel</button>
+      <button class="btn-danger" id="confirm-ok" type="button"><i class="fa fa-check"></i> Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- CHANGE PASSWORD MODAL -->
+<div id="modal-password" class="overlay" style="display:none">
+  <div class="modal modal-sm">
+    <div class="mh">
+      <h2><i class="fa fa-lock"></i> Change Password</h2>
+      <button class="mclose" onclick="closeModal('modal-password')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb">
+      <div class="fg">
+        <label>New Password</label>
+        <div class="pw-wrap">
+          <input type="password" id="new-password" placeholder="Enter new password"/>
+          <button class="eye-btn" onclick="toggleEye('new-password',this)" type="button"><i class="fa fa-eye"></i></button>
+        </div>
+      </div>
+      <div class="fg">
+        <label>Confirm New Password</label>
+        <div class="pw-wrap">
+          <input type="password" id="confirm-password" placeholder="Confirm new password"/>
+          <button class="eye-btn" onclick="toggleEye('confirm-password',this)" type="button"><i class="fa fa-eye"></i></button>
+        </div>
+      </div>
+      <div id="password-msg"></div>
+    </div>
+    <div class="mf">
+      <button class="btn-cancel" onclick="closeModal('modal-password')" type="button">Cancel</button>
+      <button class="btn-save" onclick="changePassword()" type="button"><i class="fa fa-save"></i> Update Password</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT PROFILE MODAL -->
+<div id="modal-edit-profile" class="overlay" style="display:none">
+  <div class="modal modal-sm">
+    <div class="mh">
+      <h2><i class="fa fa-user-edit"></i> Edit Profile</h2>
+      <button class="mclose" onclick="closeModal('modal-edit-profile')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb">
+      <div class="fg">
+        <label>New Username</label>
+        <input type="text" id="edit-username-input" placeholder="Enter new username"/>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn-cancel" onclick="closeModal('modal-edit-profile')" type="button">Cancel</button>
+      <button class="btn-save" onclick="saveProfile()" type="button"><i class="fa fa-save"></i> Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ALARM RINGING -->
+<div id="alarm-ring" style="display:none">
+  <div class="ring-box">
+    <div class="ring-anim">⏰</div>
+    <h2 id="ring-label">Alarm!</h2>
+    <p id="ring-time"></p>
+    <div class="ring-actions" style="display:flex;gap:12px;justify-content:center;margin-top:20px;">
+      <button class="btn-cancel" onclick="snoozeAlarm()" type="button"><i class="fa fa-bed"></i> Snooze</button>
+      <button class="btn-save" onclick="dismissAlarm()" type="button"><i class="fa fa-stop-circle"></i> Dismiss</button>
+    </div>
+  </div>
+</div>
+
+<!-- ORIENTATION OVERLAY -->
+<div id="orientation-overlay">
+  <div class="orientation-box">
+    <i class="fa fa-mobile-alt fa-4x" style="animation: tiltMobile 2s infinite ease-in-out; color: var(--accent);"></i>
+    <h2 style="margin-top:20px;">Portrait Mode Required</h2>
+    <p style="color:var(--text2);margin-top:10px;">Please rotate your device back to portrait mode to continue using PlanTrack.</p>
+  </div>
+</div>
+
+<!-- UPLOAD PROGRESS -->
+<div id="upload-progress-overlay" class="overlay" style="display:none; z-index:10001;">
+  <div class="modal modal-xs" style="text-align:center; padding:30px 20px;">
+    <div class="up-icon" style="font-size:3rem; color:var(--accent); margin-bottom:16px;">
+      <i class="fa fa-cloud-upload-alt"></i>
+    </div>
+    <h3 style="font-family:'Playfair Display',serif; margin-bottom:8px;">Transferring Data</h3>
+    <p class="up-status" style="font-size:.85rem; color:var(--text2); margin-bottom:12px;">Preparing...</p>
+    
+    <div class="up-bar-wrap" style="height:8px; background:var(--surface3); border-radius:99px; overflow:hidden; margin-bottom:12px;">
+      <div class="up-fill" style="height:100%; background:linear-gradient(90deg, var(--accent), var(--accent2)); width:0%; transition:width 0.1s linear;"></div>
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div class="up-text" style="font-size:.9rem; font-weight:700; color:var(--accent);">0%</div>
+      <div class="up-detail" style="font-size:.7rem; color:var(--text3); font-weight:600;">0 MB / 0 MB</div>
+    </div>
+  </div>
+</div>
+
+<!-- SHARE CARD TEMPLATE (HIDDEN) -->
+<div id="share-card-wrap" style="position:fixed; left:-9999px; top:-9999px;">
+  <div id="share-card" class="share-card">
+    <div class="sc-logo">
+      <img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" alt="Logo"/>
+      <span>PlanTrack</span>
+    </div>
+    <div id="sc-content"></div>
+    <div class="sc-footer">
+      <div class="sc-tagline">Efficiency at its peak — Created with PlanTrack</div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast" class="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js?v=14"></script>
+<script src="offline.js?v=14"></script>
+<script src="app.js?v=14"></script>
+</body>
+</html>

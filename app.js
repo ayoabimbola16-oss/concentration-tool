@@ -719,8 +719,17 @@ async function initApp(user) {
   if ('serviceWorker' in navigator) {
     // Message from SW when a new version just activated
     navigator.serviceWorker.addEventListener('message', event => {
-      if (event.data?.type === 'SW_UPDATED') {
+      const { type, alarm, minutesBefore } = event.data || {};
+      if (type === 'SW_UPDATED') {
         setTimeout(() => window.location.reload(), 300);
+      }
+      // SW detected alarm time while app was in foreground
+      if (type === 'RING_ALARM_INAPP' && alarm && !ringActive) {
+        ringAlarm(alarm);
+      }
+      // SW detected 15/10-min reminder while app was in foreground
+      if (type === 'SHOW_REMINDER' && alarm && minutesBefore) {
+        showReminderBanner(alarm, minutesBefore);
       }
     });
 
@@ -1292,23 +1301,37 @@ async function checkAlarms() {
   const dayName  = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][now.getDay()];
   const weekdays = ['monday','tuesday','wednesday','thursday','friday'];
   const weekends = ['saturday','sunday'];
+
   const { data } = await db.from('alarms').select('*')
-    .eq('user_id',currentUserId).eq('is_active',true).eq('time',hhmm);
+    .eq('user_id', currentUserId).eq('is_active', true);
   if (!data?.length) return;
+
   for (const alarm of data) {
-    if (ringActive) break;
-    const ringEl = document.getElementById('alarm-ring');
-    if (ringEl && ringEl.style.display === 'flex') break;
-    const todayStr = today();
-    let shouldRing = false;
-    switch (alarm.repeat) {
-      case 'none':     shouldRing = !alarm.date || alarm.date === todayStr; break;
-      case 'daily':    shouldRing = true; break;
-      case 'weekdays': shouldRing = weekdays.includes(dayName); break;
-      case 'weekends': shouldRing = weekends.includes(dayName); break;
-      case 'weekly':   shouldRing = alarm.date ? new Date(alarm.date+'T00:00:00').getDay()===now.getDay() : true; break;
+    // ── Exact alarm time: ring in-app ─────────────────────────────
+    if (alarm.time === hhmm) {
+      if (ringActive) continue;
+      const ringEl = document.getElementById('alarm-ring');
+      if (ringEl && ringEl.style.display === 'flex') continue;
+      const todayStr = today();
+      let shouldRing = false;
+      switch (alarm.repeat) {
+        case 'none':     shouldRing = !alarm.date || alarm.date === todayStr; break;
+        case 'daily':    shouldRing = true; break;
+        case 'weekdays': shouldRing = weekdays.includes(dayName); break;
+        case 'weekends': shouldRing = weekends.includes(dayName); break;
+        case 'weekly':   shouldRing = alarm.date ? new Date(alarm.date+'T00:00:00').getDay()===now.getDay() : true; break;
+      }
+      if (shouldRing) ringAlarm(alarm);
+      continue;
     }
-    if (shouldRing) ringAlarm(alarm);
+
+    // ── 15 / 10 minute in-app reminder check ─────────────────────
+    const alarmMs = getNextAlarmDate(alarm.time, alarm.date, alarm.repeat)?.getTime?.() || 0;
+    if (!alarmMs) continue;
+    const minsLeft = Math.round((alarmMs - now.getTime()) / 60000);
+    if (minsLeft === 15 || minsLeft === 10) {
+      showReminderBanner(alarm, minsLeft);
+    }
   }
 }
 
@@ -1321,6 +1344,53 @@ function ringAlarm(alarm) {
   document.getElementById('alarm-ring').style.display = 'flex';
   playSound(alarm.sound, true);
   if (window.fireAlarmNotification) window.fireAlarmNotification(alarm);
+}
+
+// ── In-app reminder banner (shown 15/10 min before alarm) ─────────
+function showReminderBanner(alarm, minsLeft) {
+  const existingId = `reminder-banner-${alarm.id}-${minsLeft}`;
+  if (document.getElementById(existingId)) return; // already shown
+
+  const banner = document.createElement('div');
+  banner.id = existingId;
+  banner.style.cssText = `
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    background:var(--surface2); border:2px solid var(--accent);
+    border-radius:16px; padding:14px 18px; z-index:9000;
+    max-width:480px; width:calc(100% - 32px);
+    box-shadow:0 8px 40px rgba(0,0,0,0.6);
+    display:flex; align-items:center; gap:14px;
+    animation:reminderSlideUp .4s cubic-bezier(.22,1,.36,1);
+    font-family:'DM Sans',sans-serif;`;
+
+  banner.innerHTML = `
+    <span style="font-size:2rem;flex-shrink:0">🔔</span>
+    <div style="flex:1">
+      <div style="font-weight:700;color:var(--accent);font-size:.95rem;margin-bottom:2px">
+        Alarm in ${minsLeft} minutes
+      </div>
+      <div style="color:var(--text2);font-size:.82rem">"${escHtml(alarm.label)}" at ${fmt12(alarm.time)}</div>
+    </div>
+    <button onclick="this.parentElement.remove()" style="
+      background:none;border:1px solid var(--border2);border-radius:8px;
+      color:var(--text3);padding:6px 10px;cursor:pointer;font-size:.8rem;
+      font-family:'DM Sans',sans-serif;white-space:nowrap;flex-shrink:0"
+      type="button">Dismiss</button>`;
+
+  // Inject animation keyframes once
+  if (!document.getElementById('reminder-anim-style')) {
+    const st = document.createElement('style');
+    st.id = 'reminder-anim-style';
+    st.textContent = `@keyframes reminderSlideUp {
+      from { opacity:0; transform:translateX(-50%) translateY(40px); }
+      to   { opacity:1; transform:translateX(-50%) translateY(0); }
+    }`;
+    document.head.appendChild(st);
+  }
+
+  document.body.appendChild(banner);
+  // Auto-dismiss after 2 minutes
+  setTimeout(() => { if (banner.parentElement) banner.remove(); }, 120000);
 }
 
 // Make globally accessible for sw integration
@@ -1344,8 +1414,8 @@ function dismissAlarm(isRemote = false) {
 
   if (isRemote) return; // Background/Remote dismissal only stops UI/Sound
 
-  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-    navigator.serviceWorker.controller.postMessage({ type:'CLEAR_ALARMS' });
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller && activeId) {
+    navigator.serviceWorker.controller.postMessage({ type:'CANCEL_ALARM_NOTIFS', data:{ alarmId: activeId } });
   }
   
   if ('Notification' in window) {
@@ -1394,6 +1464,15 @@ async function snoozeAlarm(isRemote = false) {
   };
   
   await db.from('alarms').insert(payload);
+
+  // Also tell the SW to schedule the snooze notification for background
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({
+      type: 'SNOOZE_ALARM',
+      data: { alarmId: activeId, snoozeMs: now.getTime(), label: cleanLabel }
+    });
+  }
+
   toast('Alarm snoozed for 10 minutes!', 'info');
   loadAlarms();
   dismissAlarm();
