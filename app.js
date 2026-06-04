@@ -1142,6 +1142,102 @@ async function loadAlarms() {
   if (error) { toast('Could not load alarms.','error'); return; }
   renderAlarms(data||[]);
   if (window.pushAlarmsToSW) window.pushAlarmsToSW(data||[]);
+  
+  // ── CAPACITOR NATIVE ALARM INTEGRATION ────────────────────────────
+  // If running as a compiled Android/iOS app via Capacitor, this will
+  // schedule exact OS-level background alarms that survive app closure.
+  if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications) {
+    try {
+      await scheduleNativeCapacitorAlarms(data || []);
+    } catch (e) {
+      console.error('Capacitor native alarm scheduling failed:', e);
+    }
+  }
+}
+
+// Simple hash function for generating unique integer IDs for Capacitor
+function generateNumericId(uuidStr, offset = 0) {
+  let hash = 0;
+  for (let i = 0; i < uuidStr.length; i++) {
+    hash = ((hash << 5) - hash) + uuidStr.charCodeAt(i);
+    hash |= 0; // Convert to 32bit integer
+  }
+  return Math.abs(hash) % 1000000 + offset;
+}
+
+async function scheduleNativeCapacitorAlarms(alarms) {
+  const LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
+  
+  let permStatus = await LocalNotifications.checkPermissions();
+  if (permStatus.display !== 'granted') {
+    permStatus = await LocalNotifications.requestPermissions();
+  }
+  if (permStatus.display !== 'granted') return;
+
+  // Clear existing pending native notifications to avoid duplicates
+  const pending = await LocalNotifications.getPending();
+  if (pending.notifications && pending.notifications.length > 0) {
+     await LocalNotifications.cancel({ 
+       notifications: pending.notifications.map(n => ({ id: n.id })) 
+     });
+  }
+
+  const notifsToSchedule = [];
+  const now = Date.now();
+  
+  alarms.forEach(alarm => {
+    if (!alarm.is_active) return;
+    
+    // getNextAlarmDate is a function you already have in app.js
+    const nextDate = getNextAlarmDate(alarm.time, alarm.date, alarm.repeat);
+    if (!nextDate) return;
+    
+    const nextMs = nextDate.getTime();
+    if (nextMs <= now) return;
+
+    // Base numeric ID
+    const baseId = generateNumericId(alarm.id, 0);
+
+    // Exact Alarm
+    notifsToSchedule.push({
+      id: baseId,
+      title: `⏰ ${alarm.label}`,
+      body: `Your alarm is ringing! Time: ${fmt12(alarm.time)}`,
+      schedule: { at: new Date(nextMs), allowWhileIdle: true }, // allowWhileIdle forces exact time in Doze mode
+      smallIcon: "ic_stat_icon_config_sample", // Update with your Android drawable
+      sound: "beep.wav",                       // Optional: native sound file
+      extra: { alarmId: alarm.id, type: 'alarm' }
+    });
+
+    // 15-min reminder
+    const r15 = nextMs - 15 * 60000;
+    if (r15 > now) {
+      notifsToSchedule.push({
+        id: generateNumericId(alarm.id, 1000000),
+        title: `🔔 Alarm in 15 minutes`,
+        body: `"${alarm.label}" is coming up at ${fmt12(alarm.time)}`,
+        schedule: { at: new Date(r15), allowWhileIdle: true },
+        extra: { alarmId: alarm.id, type: 'reminder' }
+      });
+    }
+
+    // 10-min reminder
+    const r10 = nextMs - 10 * 60000;
+    if (r10 > now) {
+      notifsToSchedule.push({
+        id: generateNumericId(alarm.id, 2000000),
+        title: `🔔 Alarm in 10 minutes`,
+        body: `"${alarm.label}" is coming up at ${fmt12(alarm.time)}`,
+        schedule: { at: new Date(r10), allowWhileIdle: true },
+        extra: { alarmId: alarm.id, type: 'reminder' }
+      });
+    }
+  });
+
+  if (notifsToSchedule.length > 0) {
+    await LocalNotifications.schedule({ notifications: notifsToSchedule });
+    console.log(`[PlanTrack Native] Scheduled ${notifsToSchedule.length} native alarms/reminders.`);
+  }
 }
 
 function getSoundLabel(soundId) {
