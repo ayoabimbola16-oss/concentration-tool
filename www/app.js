@@ -697,13 +697,8 @@ async function initApp(user) {
     adminNav.style.display = (profile && profile.is_admin) ? 'block' : 'none';
   }
 
-  // Sync current daily streak to Supabase profiles table
-  try {
-    const streak = getFocusStreak();
-    await db.from('profiles').update({ streak_public: streak.current }).eq('id', user.id);
-  } catch (err) {
-    console.warn('Failed to sync streak to Supabase:', err);
-  }
+  // Sync daily streak (Supabase-backed)
+  await syncStreak();
 
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -721,11 +716,15 @@ async function initApp(user) {
   // Sync state when coming back to app
   window.addEventListener('focus', () => {
     loadAlarms();
+    syncStreak(); // re-check streak when user returns (e.g. app left open overnight)
     if (ringActive) {
        // Check if sound should still be playing
        // (e.g. if dismissed in background)
     }
   });
+
+  // Schedule streak-loss reminder notification
+  scheduleStreakReminder();
 
   // Init real social system
   if (window.initSocialReal) window.initSocialReal();
@@ -895,11 +894,12 @@ async function loadProfile() {
   setEl('stat-focus-mins',     `${totalMins}m`);
   setEl('stat-friends',        friendsCount);
 
-  // Update profile streak badge
-  const streak = getFocusStreak();
+  // Update profile streak badge from Supabase data
   const streakEl = document.getElementById('profile-streak-badge');
-  if (streakEl) {
-    streakEl.textContent = `🔥 ${streak.current} Day Streak`;
+  if (streakEl && currentUserProfile) {
+    const cs = currentUserProfile.current_streak || 0;
+    const ls = currentUserProfile.longest_streak || 0;
+    streakEl.textContent = `🔥 ${cs} Day Streak (Best: ${ls})`;
   }
 }
 
@@ -2710,7 +2710,7 @@ function completeFocusSession() {
   
   // Update Stats — use actual duration in seconds
   focusSessionsToday++;
-  updateFocusStreak();
+  // Streak is managed on app open via syncStreak(), not per session
   const secsAdded  = focusTotalSeconds;
   focusTotalSecs  += secsAdded;
 
@@ -3105,85 +3105,212 @@ function _bsSelectSound(id) {
   toast('✅ Sound selected!', 'success');
 }
 
-// ── Daily Streak Logic ───────────────────────────────────────────────
-const STREAK_KEY = 'plantrack_focus_streak';
+// ── Daily Streak Logic (Supabase-backed) ─────────────────────────────
 
-function getFocusStreak() {
+/**
+ * Get user's local date as YYYY-MM-DD (timezone-safe)
+ */
+function getLocalDateStr() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Check if dateB is exactly 1 calendar day after dateA
+ * Both are YYYY-MM-DD strings
+ */
+function isConsecutiveDay(dateA, dateB) {
+  if (!dateA || !dateB) return false;
+  const a = new Date(dateA + 'T00:00:00');
+  const b = new Date(dateB + 'T00:00:00');
+  const diffMs = b.getTime() - a.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+  return diffDays === 1;
+}
+
+/**
+ * Sync streak with Supabase on app open / focus return.
+ * - Same day as last_active_date → do nothing
+ * - Exactly 1 day after → current_streak++
+ * - More than 1 day gap → current_streak = 1 (reset)
+ * - Updates longest_streak if current exceeds it
+ * - Saves to Supabase and updates all UI
+ */
+async function syncStreak() {
+  if (!currentUserId) return;
+
+  const todayStr = getLocalDateStr();
+
   try {
-    const raw = localStorage.getItem(STREAK_KEY);
-    return raw ? JSON.parse(raw) : { current: 0, longest: 0, lastDate: null };
-  } catch(e) { return { current: 0, longest: 0, lastDate: null }; }
-}
+    // Read current streak data from Supabase
+    const { data: profile, error: readErr } = await db
+      .from('profiles')
+      .select('current_streak, longest_streak, last_active_date')
+      .eq('id', currentUserId)
+      .single();
 
-function saveFocusStreak(data) {
-  try { localStorage.setItem(STREAK_KEY, JSON.stringify(data)); } catch(e) {}
-}
+    if (readErr || !profile) {
+      console.warn('Streak read error:', readErr?.message);
+      return;
+    }
 
-function updateFocusStreak() {
-  const todayStr = today();
-  const streak = getFocusStreak();
+    let currentStreak = profile.current_streak || 0;
+    let longestStreak = profile.longest_streak || 0;
+    const lastActive  = profile.last_active_date; // YYYY-MM-DD or null
 
-  if (streak.lastDate === todayStr) return; // already counted today
+    // Same day → do nothing (prevents multi-open cheating)
+    if (lastActive === todayStr) {
+      _updateStreakDisplay(currentStreak);
+      _updateProfileStreakBadge(currentStreak, longestStreak);
+      return;
+    }
 
-  // Is it a consecutive day?
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yStr = yesterday.toISOString().split('T')[0];
+    // Calculate new streak
+    if (isConsecutiveDay(lastActive, todayStr)) {
+      currentStreak++;
+    } else {
+      currentStreak = 1; // reset — streak broken or first use
+    }
 
-  if (streak.lastDate === yStr) {
-    streak.current++;
-  } else {
-    streak.current = 1; // reset — streak broken
+    // Update longest
+    if (currentStreak > longestStreak) {
+      longestStreak = currentStreak;
+    }
+
+    // Write to Supabase
+    const { error: writeErr } = await db
+      .from('profiles')
+      .update({
+        current_streak:   currentStreak,
+        longest_streak:   longestStreak,
+        last_active_date: todayStr,
+        streak_public:    currentStreak  // backward compat
+      })
+      .eq('id', currentUserId);
+
+    if (writeErr) {
+      console.warn('Streak write error:', writeErr.message);
+    }
+
+    // Update cached profile
+    if (currentUserProfile) {
+      currentUserProfile.current_streak   = currentStreak;
+      currentUserProfile.longest_streak   = longestStreak;
+      currentUserProfile.last_active_date = todayStr;
+      currentUserProfile.streak_public    = currentStreak;
+    }
+
+    // Update UI
+    _updateStreakDisplay(currentStreak);
+    _updateProfileStreakBadge(currentStreak, longestStreak);
+
+    // Show splash on streak change
+    _showStreakSplashIfNeeded(currentStreak);
+
+  } catch (err) {
+    console.warn('syncStreak error:', err);
   }
-  streak.longest  = Math.max(streak.longest, streak.current);
-  streak.lastDate = todayStr;
-  saveFocusStreak(streak);
-  _updateStreakDisplay(streak);
 }
 
-function _updateStreakDisplay(streak) {
+function _updateStreakDisplay(current) {
   const el = document.getElementById('focus-streak-count');
-  if (el) el.textContent = `🔥 ${streak.current} day${streak.current !== 1 ? 's' : ''}`;
+  if (el) el.textContent = `🔥 ${current} day${current !== 1 ? 's' : ''}`;
 }
 
-function showStreakSplashIfNeeded() {
-  const streak = getFocusStreak();
-  _updateStreakDisplay(streak);
-  if (streak.current < 1) return; // no sessions yet — skip
+function _updateProfileStreakBadge(current, longest) {
+  const el = document.getElementById('profile-streak-badge');
+  if (el) el.textContent = `🔥 ${current} Day Streak (Best: ${longest})`;
+}
+
+function _showStreakSplashIfNeeded(currentStreak) {
+  if (currentStreak < 1) return;
 
   // Only show the splash screen once per day
-  const todayStr = today();
+  const todayStr = getLocalDateStr();
   try {
     const lastShownDate = localStorage.getItem('plantrack_streak_splash_shown_date');
-    if (lastShownDate === todayStr) {
-      return; // already shown today
-    }
+    if (lastShownDate === todayStr) return;
     localStorage.setItem('plantrack_streak_splash_shown_date', todayStr);
-  } catch (e) {
-    // LocalStorage fallback
-  }
+  } catch (e) {}
 
   const splashEl = document.getElementById('streak-splash');
   const numEl    = document.getElementById('streak-splash-num');
   const msgEl    = document.getElementById('streak-splash-msg');
   if (!splashEl) return;
 
-  if (numEl) numEl.textContent = streak.current;
+  if (numEl) numEl.textContent = currentStreak;
   if (msgEl) {
-    if (streak.current === 1)      msgEl.textContent = 'Great start — come back tomorrow to build your streak!';
-    else if (streak.current < 7)   msgEl.textContent = `${streak.current} days in a row! Keep the momentum going.`;
-    else if (streak.current < 30)  msgEl.textContent = `🔥 ${streak.current} days strong! You're on fire!`;
-    else                           msgEl.textContent = `🏆 ${streak.current} days! You are an absolute machine!`;
+    if (currentStreak === 1)      msgEl.textContent = 'Great start — come back tomorrow to build your streak!';
+    else if (currentStreak < 7)   msgEl.textContent = `${currentStreak} days in a row! Keep the momentum going.`;
+    else if (currentStreak < 30)  msgEl.textContent = `🔥 ${currentStreak} days strong! You're on fire!`;
+    else                          msgEl.textContent = `🏆 ${currentStreak} days! You are an absolute machine!`;
   }
 
   splashEl.style.display = 'flex';
-  // Auto-dismiss after 5 seconds if user doesn't tap
   setTimeout(() => dismissStreakSplash(), 5000);
+}
+
+function showStreakSplashIfNeeded() {
+  // Reads from cached profile (already synced in initApp)
+  const cs = currentUserProfile?.current_streak || 0;
+  _updateStreakDisplay(cs);
+  _showStreakSplashIfNeeded(cs);
 }
 
 function dismissStreakSplash() {
   const el = document.getElementById('streak-splash');
   if (el) el.style.display = 'none';
+}
+
+/**
+ * Schedule a browser notification at 8 PM local time
+ * to warn the user they're about to lose their streak.
+ * Only fires if the user hasn't already synced today.
+ */
+let _streakReminderTimeout = null;
+function scheduleStreakReminder() {
+  if (_streakReminderTimeout) clearTimeout(_streakReminderTimeout);
+
+  const cs = currentUserProfile?.current_streak || 0;
+  if (cs < 1) return; // no streak to protect
+
+  // Calculate ms until 8 PM local time today
+  const now = new Date();
+  const target = new Date();
+  target.setHours(20, 0, 0, 0); // 8 PM
+
+  let delay = target.getTime() - now.getTime();
+  if (delay <= 0) return; // already past 8 PM
+
+  _streakReminderTimeout = setTimeout(async () => {
+    // Re-check: has user already been active today?
+    const todayStr = getLocalDateStr();
+    const lastActive = currentUserProfile?.last_active_date;
+
+    if (lastActive === todayStr) return; // already active, no warning needed
+
+    // Request notification permission if not granted
+    if ('Notification' in window) {
+      if (Notification.permission === 'default') {
+        await Notification.requestPermission();
+      }
+      if (Notification.permission === 'granted') {
+        new Notification('🔥 Don\'t lose your streak!', {
+          body: `You have a ${cs}-day streak! Open PlanTrack before midnight to keep it going.`,
+          icon: 'WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+          tag: 'streak-reminder'
+        });
+      }
+    }
+
+    // Also show in-app toast if app is visible
+    if (document.visibilityState === 'visible') {
+      toast(`🔥 Don't lose your ${cs}-day streak! You've already opened the app — you're safe!`, 'info');
+    }
+  }, delay);
 }
 
 // ── Real Social Accountability, Presence, and Admin Dashboard ─────────
@@ -3657,7 +3784,7 @@ window.showUserProfile = async function(userId) {
     document.getElementById('up-avatar').textContent = (data.username || '?').charAt(0).toUpperCase();
     document.getElementById('up-username').textContent = data.username || 'Anonymous User';
     document.getElementById('up-joined').textContent = `Joined ${fmtDate(data.joined_at?.split('T')[0] || today())}`;
-    document.getElementById('up-streak').textContent = `🔥 Streak: ${data.streak_public || 0} days`;
+    document.getElementById('up-streak').textContent = `🔥 Streak: ${data.current_streak || data.streak_public || 0} days (Best: ${data.longest_streak || 0})`;
     document.getElementById('up-sessions').textContent = data.total_sessions || 0;
     document.getElementById('up-focus-mins').textContent = data.total_focus_mins || 0;
 
@@ -3718,7 +3845,7 @@ window.submitFeedback = async function() {
   const commentVal = document.getElementById('feedback-comment').value.trim();
 
   try {
-    const { error } = await db.from('feedback').upsert({
+    const { error } = await db.from('feedback').insert({
       user_id: currentUserId,
       rating: window.currentRating,
       comment: commentVal,
@@ -3770,12 +3897,22 @@ window.loadAdminPanel = async function() {
     document.getElementById('admin-avg-rating').textContent = `${avgRating} ★`;
     document.getElementById('admin-total-feedback').textContent = feedbackCount;
 
+    // Compute avg streak across all users
+    try {
+      const { data: streakData } = await db.from('profiles').select('current_streak');
+      if (streakData && streakData.length > 0) {
+        const avgStreak = (streakData.reduce((sum, p) => sum + (p.current_streak || 0), 0) / streakData.length).toFixed(1);
+        const avgEl = document.getElementById('admin-avg-streak');
+        if (avgEl) avgEl.textContent = `🔥 ${avgStreak}`;
+      }
+    } catch (e) { console.warn('Avg streak calc error:', e); }
+
     // Load admin user list view via function
     const { data: userOverview, error } = await db.rpc('get_admin_overview');
 
     if (error) {
       console.warn('RPC get_admin_overview error:', error.message);
-      document.getElementById('admin-table-body').innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text3)">Error loading user overview: ${error.message}</td></tr>`;
+      document.getElementById('admin-table-body').innerHTML = `<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text3)">Error loading user overview: ${error.message}</td></tr>`;
     } else if (userOverview) {
       window.adminUsersList = userOverview;
       renderAdminUsersTable(userOverview);
@@ -3826,7 +3963,7 @@ function renderAdminUsersTable(users) {
   if (!tbody) return;
 
   if (users.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text3)">No matching users found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text3)">No matching users found</td></tr>';
     return;
   }
 
@@ -3836,6 +3973,8 @@ function renderAdminUsersTable(users) {
     const focusHrs = Math.round((u.total_focus_mins || 0) / 60);
     const lastActive = u.last_focus_at ? fmtDate(u.last_focus_at?.split('T')[0]) : 'Never';
     const adminTag = u.is_admin ? '<span style="color:var(--accent);font-size:.7rem;font-weight:700;margin-left:5px">[ADMIN]</span>' : '';
+    const curStreak = u.current_streak || 0;
+    const bestStreak = u.longest_streak || 0;
 
     return `
       <tr>
@@ -3851,6 +3990,7 @@ function renderAdminUsersTable(users) {
         <td>${joined}</td>
         <td>${u.total_sessions || 0}</td>
         <td>${focusHrs}h</td>
+        <td><span style="color:var(--accent);font-weight:600">🔥 ${curStreak}</span> <span style="color:var(--text3);font-size:.75rem">(Best: ${bestStreak})</span></td>
         <td>${lastActive}</td>
         <td style="text-align:right">
           <button onclick="showUserProfile('${u.id}')" class="btn-outline-sm" style="padding:4px 8px;font-size:0.75rem"><i class="fa fa-eye"></i> Profile</button>
