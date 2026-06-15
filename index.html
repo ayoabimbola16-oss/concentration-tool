@@ -1,10 +1,10 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
   <title>PlanTrack System</title>
-  <link rel="stylesheet" href="styles.css?v=14"/>
+  <link rel="stylesheet" href="styles.css?v=15"/>
   <link rel="manifest" href="manifest.json"/>
   <meta name="theme-color" content="#f0c040"/>
   <meta name="mobile-web-app-capable" content="yes"/>
@@ -126,13 +126,16 @@
       <button class="nav-btn" id="nav-focustimer" onclick="showSection('focustimer')" type="button">
         <i class="fa fa-hourglass-half"></i><span>Focus Timer</span>
       </button>
-      <button class="nav-btn" id="nav-profile" onclick="showSection('profile')" type="button">
-        <i class="fa fa-user"></i><span>My Profile</span>
-      </button>
-      <button class="nav-btn" id="install-app-btn" onclick="installPWA()" type="button" style="display:none">
-        <i class="fa fa-download"></i><span style="color:var(--accent)">Install App</span>
-      </button>
-      <div class="sidebar-footer">ABIMZZ &copy; 2026</div>
+      <button class="nav-btn" id="nav-profile" onclick="showSection('profile')" type="button">
+        <i class="fa fa-user"></i><span>My Profile</span>
+      </button>
+      <button class="nav-btn" id="nav-admin" onclick="showSection('admin')" type="button" style="display:none">
+        <i class="fa fa-shield-alt" style="color:var(--accent)"></i><span style="color:var(--accent)">Admin Panel</span>
+      </button>
+      <button class="nav-btn" id="install-app-btn" onclick="installPWA()" type="button" style="display:none">
+        <i class="fa fa-download"></i><span style="color:var(--accent)">Install App</span>
+      </button>
+      <div class="sidebar-footer">ABIMZZ &copy; 2026</div>
     </nav>
 
     <!-- CONTENT -->
@@ -248,11 +251,11 @@
 
           <div class="timer-controls">
             <div class="quick-starts">
-              <button class="btn-outline-sm" onclick="setFocusTimer(15)">15m</button>
-              <button class="btn-outline-sm" onclick="setFocusTimer(25)">25m</button>
-              <button class="btn-outline-sm" onclick="setFocusTimer(45)">45m</button>
-              <button class="btn-outline-sm" onclick="setFocusTimer(60)">60m</button>
-              <button class="btn-outline-sm" onclick="setFocusTimer(90)">90m</button>
+              <button class="timer-chip" id="chip-15" onclick="setFocusTimer(15)">15m</button>
+              <button class="timer-chip" id="chip-25" onclick="setFocusTimer(25)">25m</button>
+              <button class="timer-chip" id="chip-45" onclick="setFocusTimer(45)">45m</button>
+              <button class="timer-chip" id="chip-60" onclick="setFocusTimer(60)">60m</button>
+              <button class="timer-chip" id="chip-90" onclick="setFocusTimer(90)">90m</button>
             </div>
 
             <!-- Custom Time Input -->
@@ -273,102 +276,197 @@
                   <input type="number" id="custom-timer-secs" min="0" max="59" value="0" placeholder="0"/>
                   <span class="timer-unit-label">sec</span>
                 </div>
-                <button class="btn-outline-sm" onclick="applyCustomFocusTimer()" type="button"><i class="fa fa-check"></i> Set</button>
-              </div>
-            </div>
-
-            <!-- Completion Sound Picker -->
-            <div class="timer-sound-row">
-              <div class="timer-sound-row-header">
-                <label class="timer-custom-label"><i class="fa fa-music"></i> Completion Sound</label>
-                <label class="timer-upload-btn" title="Upload your own music">
-                  <i class="fa fa-upload"></i> Upload Music
-                  <input type="file" accept="audio/*" style="display:none" onchange="uploadTimerMusic(event)"/>
-                </label>
-              </div>
-              <div class="timer-sound-picker" id="timer-sound-picker">
-                <!-- Built by JS -->
-              </div>
-            </div>
-
-            <div class="timer-actions">
-              <button class="btn-save" id="timer-toggle-btn" onclick="toggleFocusTimer()">
-                <i class="fa fa-play"></i> Start Focusing
-              </button>
-              <button class="btn-cancel" onclick="resetFocusTimer()">
-                <i class="fa fa-redo"></i> Reset
-              </button>
+              </div>
+            </div>
+
+            <!-- Sound Trigger Button -->
+            <div class="timer-sound-trigger-row">
+              <button class="btn-outline-sm" id="sound-sheet-btn" onclick="openSoundBottomSheet()" type="button" style="width:100%;justify-content:center;padding:12px;border-radius:12px;">
+                <i class="fa fa-music" style="color:var(--accent)"></i>&nbsp;<span id="current-sound-label">Sound: Chime</span>
+              </button>
+            </div>
+
+            <div class="timer-actions">
+              <button class="btn-save" id="timer-toggle-btn" onclick="toggleFocusTimer()">
+                <i class="fa fa-play"></i> Start Focusing
+              </button>
+              <button class="btn-cancel" onclick="resetFocusTimer()">
+                <i class="fa fa-redo"></i> Reset
+              </button>
             </div>
           </div>
         </div>
 
-        <div class="focus-stats-mini">
-          <div class="focus-stat">
-            <span class="lbl">Sessions Today</span>
-            <span class="val" id="focus-sessions-count">0</span>
-          </div>
-          <div class="focus-stat">
-            <span class="lbl">Total Focus Time</span>
-            <span class="val" id="focus-total-time">0m</span>
-          </div>
-        </div>
+        <div class="focus-stats-mini">
+          <div class="focus-stat">
+            <span class="lbl">Sessions Today</span>
+            <span class="val" id="focus-sessions-count">0</span>
+          </div>
+          <div class="focus-stat">
+            <span class="lbl">Total Focus Time</span>
+            <span class="val" id="focus-total-time">0m</span>
+          </div>
+          <div class="focus-stat">
+            <span class="lbl">Daily Streak</span>
+            <span class="val" id="focus-streak-count">🔥 0 days</span>
+          </div>
+        </div>
+
+        <!-- Soft Social Accountability Panel -->
+        <div class="social-accountability-card">
+          <div class="social-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <div class="social-live-badge">
+              <span class="live-pulse-dot"></span>
+              <span class="live-pulse-text"><span id="live-focus-counter">14</span> users focusing now</span>
+            </div>
+            <button class="btn-outline-sm" onclick="openModal('modal-friend-search')" type="button" style="padding:6px 12px; font-size:0.8rem; border-radius:8px;">
+              <i class="fa fa-user-plus"></i> Find Friends
+            </button>
+          </div>
+          <div class="social-body">
+            <h3 class="social-title"><i class="fa fa-users"></i> PlanTrack Focus Room</h3>
+            <div class="friends-list" id="friends-list"></div>
+          </div>
+        </div>
       </section>
 
-      <!-- ─── PROFILE ─── -->
-      <section id="sec-profile" class="sec">
-        <div class="sec-header">
-          <div class="sec-title-block">
-            <h1><i class="fa fa-user"></i> My Profile</h1>
-            <p>View and manage your account details.</p>
-          </div>
-        </div>
-        <div class="profile-card">
-          <div class="profile-avatar-wrap">
-            <div class="profile-avatar" id="profile-avatar-display">A</div>
-            <label class="avatar-upload-btn" title="Upload Picture">
-              <i class="fa fa-camera"></i>
-              <input type="file" id="avatar-input" accept="image/*" style="display:none" onchange="uploadAvatar(event)"/>
-            </label>
-          </div>
-          <div class="profile-info">
-            <div class="profile-username" id="profile-username-display"></div>
-            <div class="profile-email" id="profile-email-display"></div>
-            <div class="profile-joined" id="profile-joined-display"></div>
-            <button class="btn-outline-sm" style="margin-top:10px" onclick="openEditProfileModal()" type="button"><i class="fa fa-edit"></i> Edit Username</button>
-          </div>
-        </div>
-
-        <div class="profile-stats-grid">
-          <div class="profile-stat-card">
-            <i class="fa fa-bell" style="color:var(--accent)"></i>
-            <div class="stat-number" id="stat-alarms">0</div>
-            <div class="stat-label">Alarms</div>
-          </div>
-          <div class="profile-stat-card">
-            <i class="fa fa-calendar-alt" style="color:var(--blue)"></i>
-            <div class="stat-number" id="stat-timetables">0</div>
-            <div class="stat-label">Timetables</div>
-          </div>
-          <div class="profile-stat-card">
-            <i class="fa fa-folder" style="color:var(--accent2)"></i>
-            <div class="stat-number" id="stat-folders">0</div>
-            <div class="stat-label">Folders</div>
-          </div>
-          <div class="profile-stat-card">
-            <i class="fa fa-tasks" style="color:var(--green)"></i>
-            <div class="stat-number" id="stat-plans">0</div>
-            <div class="stat-label">Plans</div>
-          </div>
-        </div>
-
-        <div class="profile-actions">
-          <button class="profile-action-btn" onclick="openChangePasswordModal()" type="button">
-            <i class="fa fa-lock"></i> Change Password
-          </button>
-          <button class="profile-action-btn danger" onclick="confirmLogout()" type="button">
-            <i class="fa fa-sign-out-alt"></i> Sign Out
-          </button>
-        </div>
+      <section id="sec-profile" class="sec">
+        <div class="sec-header">
+          <div class="sec-title-block">
+            <h1><i class="fa fa-user"></i> My Profile</h1>
+            <p>View and manage your account details.</p>
+          </div>
+        </div>
+        <div class="profile-card">
+          <div class="profile-avatar-wrap">
+            <div class="profile-avatar" id="profile-avatar-display">A</div>
+            <label class="avatar-upload-btn" title="Upload Picture">
+              <i class="fa fa-camera"></i>
+              <input type="file" id="avatar-input" accept="image/*" style="display:none" onchange="uploadAvatar(event)"/>
+            </label>
+          </div>
+          <div class="profile-info">
+            <div class="profile-username" id="profile-username-display"></div>
+            <div class="profile-email" id="profile-email-display"></div>
+            <div class="profile-joined" id="profile-joined-display"></div>
+            <!-- Streak badge -->
+            <div class="profile-streak-badge" id="profile-streak-badge">🔥 0 Day Streak</div>
+            <button class="btn-outline-sm" style="margin-top:10px" onclick="openEditProfileModal()" type="button"><i class="fa fa-edit"></i> Edit Username</button>
+          </div>
+        </div>
+
+        <div class="profile-stats-grid">
+          <div class="profile-stat-card">
+            <i class="fa fa-bell" style="color:var(--accent)"></i>
+            <div class="stat-number" id="stat-alarms">0</div>
+            <div class="stat-label">Alarms</div>
+          </div>
+          <div class="profile-stat-card">
+            <i class="fa fa-calendar-alt" style="color:var(--blue)"></i>
+            <div class="stat-number" id="stat-timetables">0</div>
+            <div class="stat-label">Timetables</div>
+          </div>
+          <div class="profile-stat-card">
+            <i class="fa fa-folder" style="color:var(--accent2)"></i>
+            <div class="stat-number" id="stat-folders">0</div>
+            <div class="stat-label">Folders</div>
+          </div>
+          <div class="profile-stat-card">
+            <i class="fa fa-tasks" style="color:var(--green)"></i>
+            <div class="stat-number" id="stat-plans">0</div>
+            <div class="stat-label">Plans</div>
+          </div>
+          <div class="profile-stat-card">
+            <i class="fa fa-hourglass-half" style="color:var(--accent)"></i>
+            <div class="stat-number" id="stat-focus-sessions">0</div>
+            <div class="stat-label">Focus Sessions</div>
+          </div>
+          <div class="profile-stat-card">
+            <i class="fa fa-clock" style="color:var(--purple)"></i>
+            <div class="stat-number" id="stat-focus-mins">0m</div>
+            <div class="stat-label">Focus Time</div>
+          </div>
+          <div class="profile-stat-card">
+            <i class="fa fa-users" style="color:var(--blue)"></i>
+            <div class="stat-number" id="stat-friends">0</div>
+            <div class="stat-label">Friends</div>
+          </div>
+        </div>
+
+        <div class="profile-actions">
+          <button class="profile-action-btn" onclick="openModal('modal-feedback')" type="button">
+            <i class="fa fa-star"></i> Rate PlanTrack
+          </button>
+          <button class="profile-action-btn" onclick="openModal('modal-friend-search')" type="button">
+            <i class="fa fa-user-plus"></i> Find Friends
+          </button>
+          <button class="profile-action-btn" onclick="openChangePasswordModal()" type="button">
+            <i class="fa fa-lock"></i> Change Password
+          </button>
+          <button class="profile-action-btn danger" onclick="confirmLogout()" type="button">
+            <i class="fa fa-sign-out-alt"></i> Sign Out
+          </button>
+        </div>
+      </section>
+
+      <!-- ─── ADMIN PANEL ─── -->
+      <section id="sec-admin" class="sec">
+        <div class="sec-header">
+          <div class="sec-title-block">
+            <h1><i class="fa fa-shield-alt" style="color:var(--accent)"></i> Admin Panel</h1>
+            <p>Monitor all PlanTrack users and platform activity.</p>
+          </div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="admin-summary-grid">
+          <div class="admin-stat-card">
+            <div class="admin-stat-icon"><i class="fa fa-users"></i></div>
+            <div class="admin-stat-val" id="admin-total-users">—</div>
+            <div class="admin-stat-lbl">Total Users</div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-icon" style="background:rgba(39,174,96,.15);color:var(--green)"><i class="fa fa-hourglass-half"></i></div>
+            <div class="admin-stat-val" id="admin-total-focus">—</div>
+            <div class="admin-stat-lbl">Total Focus Hours</div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-icon" style="background:rgba(74,144,226,.15);color:var(--blue)"><i class="fa fa-star"></i></div>
+            <div class="admin-stat-val" id="admin-avg-rating">—</div>
+            <div class="admin-stat-lbl">Avg App Rating</div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-icon" style="background:rgba(155,89,182,.15);color:var(--purple)"><i class="fa fa-comment-alt"></i></div>
+            <div class="admin-stat-val" id="admin-total-feedback">—</div>
+            <div class="admin-stat-lbl">Total Reviews</div>
+          </div>
+        </div>
+
+        <!-- Search bar -->
+        <div class="admin-search-row">
+          <input type="text" id="admin-search-input" placeholder="Search by username or email..." oninput="filterAdminTable()" style="flex:1"/>
+        </div>
+
+        <!-- Users Table -->
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>User</th><th>Email</th><th>Joined</th>
+                <th>Sessions</th><th>Focus Hrs</th><th>Last Active</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="admin-table-body">
+              <tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text3)">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Feedback Section -->
+        <div class="admin-section-title"><i class="fa fa-star"></i> User Ratings &amp; Feedback</div>
+        <div id="admin-feedback-list" style="display:flex;flex-direction:column;gap:12px;margin-top:14px">
+          <div style="color:var(--text3);font-size:.85rem">Loading feedback...</div>
+        </div>
       </section>
 
     </main>
@@ -682,13 +780,128 @@
   </div>
 </div>
 
-<!-- TOAST -->
+<!-- USER PROFILE VIEWER MODAL -->
+<div id="modal-user-profile" class="overlay" style="display:none">
+  <div class="modal modal-sm">
+    <div class="mh">
+      <h2><i class="fa fa-user-circle"></i> User Profile</h2>
+      <button class="mclose" onclick="closeModal('modal-user-profile')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb">
+      <div class="up-profile-header">
+        <div class="up-avatar" id="up-avatar">?</div>
+        <div>
+          <div class="up-username" id="up-username">Loading...</div>
+          <div class="up-joined" id="up-joined"></div>
+          <div class="up-streak" id="up-streak"></div>
+        </div>
+      </div>
+      <div class="up-stats-row">
+        <div class="up-stat"><span class="up-stat-val" id="up-sessions">—</span><span class="up-stat-lbl">Sessions</span></div>
+        <div class="up-stat"><span class="up-stat-val" id="up-focus-mins">—</span><span class="up-stat-lbl">Focus Mins</span></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn-cancel" onclick="closeModal('modal-user-profile')" type="button">Close</button>
+      <button class="btn-save" id="up-add-friend-btn" onclick="sendFriendReq(window._viewingUserId)" type="button"><i class="fa fa-user-plus"></i> Add Friend</button>
+    </div>
+  </div>
+</div>
+
+<!-- FEEDBACK / RATING MODAL -->
+<div id="modal-feedback" class="overlay" style="display:none">
+  <div class="modal modal-sm">
+    <div class="mh">
+      <h2><i class="fa fa-star" style="color:var(--accent)"></i> Rate PlanTrack</h2>
+      <button class="mclose" onclick="closeModal('modal-feedback')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb">
+      <p style="color:var(--text2);margin-bottom:18px;font-size:.9rem">Your feedback helps us build a better app for everyone.</p>
+      <div class="star-rating-row" id="star-rating-row">
+        <span class="star" data-val="1" onclick="setRating(1)">&#9733;</span>
+        <span class="star" data-val="2" onclick="setRating(2)">&#9733;</span>
+        <span class="star" data-val="3" onclick="setRating(3)">&#9733;</span>
+        <span class="star" data-val="4" onclick="setRating(4)">&#9733;</span>
+        <span class="star" data-val="5" onclick="setRating(5)">&#9733;</span>
+      </div>
+      <div class="fg" style="margin-top:16px">
+        <label>Comment (optional)</label>
+        <textarea id="feedback-comment" rows="4" placeholder="Tell us what you love or what we can improve..." style="resize:vertical"></textarea>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn-cancel" onclick="closeModal('modal-feedback')" type="button">Cancel</button>
+      <button class="btn-save" onclick="submitFeedback()" type="button"><i class="fa fa-paper-plane"></i> Submit</button>
+    </div>
+  </div>
+</div>
+
+<!-- FRIEND SEARCH MODAL -->
+<div id="modal-friend-search" class="overlay" style="display:none">
+  <div class="modal modal-sm">
+    <div class="mh">
+      <h2><i class="fa fa-search"></i> Find Friends</h2>
+      <button class="mclose" onclick="closeModal('modal-friend-search')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb">
+      <div class="fg">
+        <label>Search by username</label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="friend-search-input" placeholder="search user" style="flex:1" oninput="searchUsersDebounced()"/>
+        </div>
+      </div>
+      <div id="friend-search-results" style="margin-top:14px;display:flex;flex-direction:column;gap:10px;max-height:300px;overflow-y:auto">
+        <div style="color:var(--text3);font-size:.85rem;text-align:center;padding:20px">Type a username to search</div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn-cancel" onclick="closeModal('modal-friend-search')" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- SOUND BOTTOM SHEET -->
+<div id="sound-bottom-sheet" class="bottom-sheet-overlay" style="display:none" onclick="closeSoundBottomSheet(event)">
+  <div class="bottom-sheet-panel">
+    <div class="bottom-sheet-header">
+      <div class="bottom-sheet-handle"></div>
+      <h3 class="bottom-sheet-title"><i class="fa fa-music" style="color:var(--accent)"></i> Choose Sound</h3>
+      <label class="timer-upload-btn" title="Upload your own music">
+        <i class="fa fa-upload"></i> Upload
+        <input type="file" accept="audio/*" style="display:none" onchange="uploadTimerMusic(event)"/>
+      </label>
+    </div>
+    <div class="bottom-sheet-body">
+      <div class="timer-sound-section-label">🎵 Built-in Sounds</div>
+      <div id="bs-builtin-sounds"></div>
+      <div class="timer-sound-section-label" style="margin-top:10px">🎶 My Music</div>
+      <div id="bs-user-sounds"></div>
+    </div>
+  </div>
+</div>
+
+<!-- DAILY STREAK SPLASH -->
+<div id="streak-splash" style="display:none">
+  <div class="streak-splash-content">
+    <div class="streak-flame-wrap">
+      <div class="streak-flame">🔥</div>
+      <div class="streak-streak-num" id="streak-splash-num">0</div>
+    </div>
+    <h2 class="streak-splash-title">Day Streak!</h2>
+    <p class="streak-splash-sub" id="streak-splash-msg">Keep it going — focus every day to build your chain!</p>
+    <button class="btn-save" onclick="dismissStreakSplash()" style="min-width:140px;justify-content:center;margin-top:20px">
+      <i class="fa fa-fire"></i> Let's Go!
+    </button>
+  </div>
+</div>
+
+<!-- TOAST -->
 <div id="toast" class="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="config.js?v=14"></script>
-<script src="offline.js?v=14"></script>
-<script src="app.js?v=14"></script>
+<script src="config.js?v=15"></script>
+<script src="offline.js?v=15"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

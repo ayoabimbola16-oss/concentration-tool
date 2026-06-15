@@ -536,35 +536,66 @@ async function login() {
   showAuthMsg('Signing in...', 'info');
 
   try {
-    // Step 1: find email from username
+    // Step 1: find email from username (case-insensitive match)
     const { data: profile, error: profileError } = await db
       .from('profiles')
       .select('email')
-      .eq('username', username)
+      .ilike('username', username)
       .maybeSingle();
 
     if (profileError) {
-      showAuthMsg('Error looking up username. Please try again.');
+      // Log the REAL Supabase error to the browser console
+      console.error('[PlanTrack Login] Username lookup failed:', {
+        code:    profileError.code,
+        message: profileError.message,
+        details: profileError.details,
+        hint:    profileError.hint,
+      });
+
+      // Show a specific message based on error type
+      if (!navigator.onLine) {
+        showAuthMsg('You are offline. Please check your internet connection.');
+      } else if (
+        profileError.code === 'PGRST301' ||
+        profileError.code === '42501'    ||
+        (profileError.message || '').toLowerCase().includes('rls') ||
+        (profileError.message || '').toLowerCase().includes('permission')
+      ) {
+        showAuthMsg('Database permission error. Please run fix-login-policy.sql in your Supabase SQL editor, then try again.');
+      } else {
+        showAuthMsg('Error looking up username (' + (profileError.message || 'unknown') + '). Please try again.');
+      }
       return;
     }
+
     if (!profile) {
-      showAuthMsg('Username not found. Please check and try again.');
+      showAuthMsg('Username not found. Please check spelling and try again.');
       return;
     }
 
     // Step 2: sign in with email + password
     const { data, error } = await db.auth.signInWithPassword({
-      email: profile.email,
+      email:    profile.email,
       password: password,
     });
 
     if (error) {
-      showAuthMsg(error.message || 'Incorrect password. Please try again.');
+      console.error('[PlanTrack Login] Sign-in failed:', error.message);
+      const msg = (error.message || '').toLowerCase();
+      if (msg.includes('invalid login') || msg.includes('invalid credentials') || msg.includes('wrong')) {
+        showAuthMsg('Incorrect password. Please try again.');
+      } else if (msg.includes('email not confirmed')) {
+        showAuthMsg('Please verify your email address first. Check your inbox for the confirmation link.');
+      } else if (msg.includes('too many')) {
+        showAuthMsg('Too many failed attempts. Please wait a few minutes and try again.');
+      } else {
+        showAuthMsg(error.message || 'Sign-in failed. Please try again.');
+      }
       return;
     }
 
     if (!data || !data.user) {
-      showAuthMsg('Login failed. Please try again.');
+      showAuthMsg('Login failed unexpectedly. Please try again.');
       return;
     }
 
@@ -572,7 +603,12 @@ async function login() {
     await initApp(data.user);
 
   } catch (err) {
-    showAuthMsg('An error occurred. Please check your internet connection.');
+    console.error('[PlanTrack Login] Unexpected exception:', err);
+    if (!navigator.onLine) {
+      showAuthMsg('You are offline. Please check your internet connection.');
+    } else {
+      showAuthMsg('An unexpected error occurred. Please refresh the page and try again.');
+    }
   }
 }
 
@@ -655,6 +691,20 @@ async function initApp(user) {
   // Set profile avatar initial
   renderAvatar();
 
+  // Check and toggle Admin Panel nav visibility
+  const adminNav = document.getElementById('nav-admin');
+  if (adminNav) {
+    adminNav.style.display = (profile && profile.is_admin) ? 'block' : 'none';
+  }
+
+  // Sync current daily streak to Supabase profiles table
+  try {
+    const streak = getFocusStreak();
+    await db.from('profiles').update({ streak_public: streak.current }).eq('id', user.id);
+  } catch (err) {
+    console.warn('Failed to sync streak to Supabase:', err);
+  }
+
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
@@ -677,14 +727,25 @@ async function initApp(user) {
     }
   });
 
-  if (window.initSocial) window.initSocial();
+  // Init real social system
+  if (window.initSocialReal) window.initSocialReal();
+
 
   // ── Service Worker: listen for updates & auto-reload ─────────
   if ('serviceWorker' in navigator) {
     // Message from SW when a new version just activated
     navigator.serviceWorker.addEventListener('message', event => {
-      if (event.data?.type === 'SW_UPDATED') {
+      const { type, alarm, minutesBefore } = event.data || {};
+      if (type === 'SW_UPDATED') {
         setTimeout(() => window.location.reload(), 300);
+      }
+      // SW detected alarm time while app was in foreground
+      if (type === 'RING_ALARM_INAPP' && alarm && !ringActive) {
+        ringAlarm(alarm);
+      }
+      // SW detected 15/10-min reminder while app was in foreground
+      if (type === 'SHOW_REMINDER' && alarm && minutesBefore) {
+        showReminderBanner(alarm, minutesBefore);
       }
     });
 
@@ -759,8 +820,9 @@ function showSection(name) {
     files:        loadFolders,
     plans:        loadPlans,
     profile:      loadProfile,
-    focustimer: loadFocusStats,
-    social:    () => { if(window.loadFriends) loadFriends(); if(window.loadSharedWithMe) loadSharedWithMe(); },
+    admin:        () => { if (window.loadAdminPanel) window.loadAdminPanel(); },
+    focustimer:   loadFocusStats,
+    social:       () => { if(window.loadFriends) loadFriends(); if(window.loadSharedWithMe) loadSharedWithMe(); },
   };
   if (loaders[name]) loaders[name]();
 
@@ -810,19 +872,37 @@ async function loadProfile() {
   renderAvatar();
 
   // Load stats
-  const [alarms, timetables, folders, plans] = await Promise.all([
+  const [alarms, timetables, folders, plans, sessions, friendships] = await Promise.all([
     db.from('alarms').select('*', {count:'exact',head:true}).eq('user_id', currentUserId),
     db.from('timetables').select('*', {count:'exact',head:true}).eq('user_id', currentUserId),
     db.from('folders').select('*', {count:'exact',head:true}).eq('user_id', currentUserId),
     db.from('plans').select('*', {count:'exact',head:true}).eq('user_id', currentUserId),
+    db.from('focus_sessions').select('duration_secs').eq('user_id', currentUserId),
+    db.from('friends').select('status').or(`user_id.eq.${currentUserId},friend_id.eq.${currentUserId}`),
   ]);
 
+  const sessionCount = sessions.data ? sessions.data.length : 0;
+  const totalSeconds = sessions.data ? sessions.data.reduce((sum, s) => sum + (s.duration_secs || 0), 0) : 0;
+  const totalMins = Math.round(totalSeconds / 60);
+  const friendsCount = friendships.data ? friendships.data.filter(f => f.status === 'accepted').length : 0;
+
   const setEl = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val||0; };
-  setEl('stat-alarms',     alarms.count);
-  setEl('stat-timetables', timetables.count);
-  setEl('stat-folders',    folders.count);
-  setEl('stat-plans',      plans.count);
+  setEl('stat-alarms',         alarms.count);
+  setEl('stat-timetables',     timetables.count);
+  setEl('stat-folders',        folders.count);
+  setEl('stat-plans',          plans.count);
+  setEl('stat-focus-sessions', sessionCount);
+  setEl('stat-focus-mins',     `${totalMins}m`);
+  setEl('stat-friends',        friendsCount);
+
+  // Update profile streak badge
+  const streak = getFocusStreak();
+  const streakEl = document.getElementById('profile-streak-badge');
+  if (streakEl) {
+    streakEl.textContent = `🔥 ${streak.current} Day Streak`;
+  }
 }
+
 
 function openEditProfileModal() {
   const inp = document.getElementById('edit-username-input');
@@ -1097,6 +1177,151 @@ async function loadAlarms() {
   if (error) { toast('Could not load alarms.','error'); return; }
   renderAlarms(data||[]);
   if (window.pushAlarmsToSW) window.pushAlarmsToSW(data||[]);
+  
+  // ── CAPACITOR NATIVE ALARM INTEGRATION ────────────────────────────
+  // If running as a compiled Android/iOS app via Capacitor, this will
+  // schedule exact OS-level background alarms that survive app closure.
+  if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications) {
+    try {
+      await scheduleNativeCapacitorAlarms(data || []);
+    } catch (e) {
+      console.error('Capacitor native alarm scheduling failed:', e);
+    }
+  }
+}
+
+// Simple hash function for generating unique integer IDs for Capacitor
+function generateNumericId(uuidStr, offset = 0) {
+  let hash = 0;
+  for (let i = 0; i < uuidStr.length; i++) {
+    hash = ((hash << 5) - hash) + uuidStr.charCodeAt(i);
+    hash |= 0; // Convert to 32bit integer
+  }
+  return Math.abs(hash) % 1000000 + offset;
+}
+
+async function scheduleNativeCapacitorAlarms(alarms) {
+  const LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
+  
+  let permStatus = await LocalNotifications.checkPermissions();
+  if (permStatus.display !== 'granted') {
+    permStatus = await LocalNotifications.requestPermissions();
+  }
+  if (permStatus.display !== 'granted') return;
+
+  // ── Android Exact Alarm Permission Check ──
+  if (window.Capacitor.getPlatform() === 'android') {
+    try {
+      const exactStatus = await LocalNotifications.checkExactNotificationSetting();
+      if (exactStatus.exact_alarm !== 'granted') {
+        const confirmResult = confirm(
+          "PlanTrack needs 'Alarms & Reminders' permission to ring alarms when the app is closed. Click OK to open Settings and turn it on."
+        );
+        if (confirmResult) {
+          await LocalNotifications.changeExactNotificationSetting();
+        }
+        return; // Stop scheduling until permission is granted
+      }
+    } catch (e) {
+      console.warn('[PlanTrack Native] Failed to check exact alarm setting:', e);
+    }
+  }
+
+  // ── Create notification channels (Android 8+ REQUIRES this for custom sound) ──
+  // Note: We use -v2 channel IDs because channel sound is immutable once created.
+  try {
+    await LocalNotifications.createChannel({
+      id: 'plantrack-alarms-v2',
+      name: 'PlanTrack Alarms',
+      description: 'Alarm notifications with custom sound and vibration',
+      importance: 5,          // MAX importance = heads-up + sound + vibrate
+      visibility: 1,          // Show on lock screen
+      sound: 'alarm_sound',   // Custom loud wav sound file (alarm_sound.wav in res/raw)
+      vibration: true,
+      lights: true,
+      lightColor: '#FF6B35',
+    });
+
+    await LocalNotifications.createChannel({
+      id: 'plantrack-reminders-v2',
+      name: 'PlanTrack Reminders',
+      description: 'Pre-alarm reminder notifications with custom sound',
+      importance: 4,          // HIGH importance = heads-up + sound
+      visibility: 1,
+      sound: 'alarm_sound',
+      vibration: true,
+    });
+    console.log('[PlanTrack Native] Notification channels v2 created with custom alarm sound.');
+  } catch (e) {
+    console.warn('[PlanTrack Native] Channel creation skipped:', e.message);
+  }
+
+  // Clear existing pending native notifications to avoid duplicates
+  const pending = await LocalNotifications.getPending();
+  if (pending.notifications && pending.notifications.length > 0) {
+     await LocalNotifications.cancel({ 
+       notifications: pending.notifications.map(n => ({ id: n.id })) 
+     });
+  }
+
+  const notifsToSchedule = [];
+  const now = Date.now();
+  
+  alarms.forEach(alarm => {
+    if (!alarm.is_active) return;
+    
+    const nextDate = getNextAlarmDate(alarm.time, alarm.date, alarm.repeat);
+    if (!nextDate) return;
+    
+    const nextMs = nextDate.getTime();
+    if (nextMs <= now) return;
+
+    const baseId = generateNumericId(alarm.id, 0);
+
+    // ── Exact Alarm notification (LOUD, full sound, vibration) ──
+    notifsToSchedule.push({
+      id: baseId,
+      title: `⏰ ${alarm.label}`,
+      body: `Your alarm is ringing! Time: ${fmt12(alarm.time)}`,
+      channelId: 'plantrack-alarms-v2',
+      schedule: { at: new Date(nextMs), allowWhileIdle: true },
+      sound: 'alarm_sound',
+      extra: { alarmId: alarm.id, type: 'alarm' },
+    });
+
+    // ── 15-min reminder ──
+    const r15 = nextMs - 15 * 60000;
+    if (r15 > now) {
+      notifsToSchedule.push({
+        id: generateNumericId(alarm.id, 1000000),
+        title: `🔔 Alarm in 15 minutes`,
+        body: `"${alarm.label}" is coming up at ${fmt12(alarm.time)}`,
+        channelId: 'plantrack-reminders-v2',
+        schedule: { at: new Date(r15), allowWhileIdle: true },
+        sound: 'alarm_sound',
+        extra: { alarmId: alarm.id, type: 'reminder' },
+      });
+    }
+
+    // ── 10-min reminder ──
+    const r10 = nextMs - 10 * 60000;
+    if (r10 > now) {
+      notifsToSchedule.push({
+        id: generateNumericId(alarm.id, 2000000),
+        title: `🔔 Alarm in 10 minutes`,
+        body: `"${alarm.label}" is coming up at ${fmt12(alarm.time)}`,
+        channelId: 'plantrack-reminders-v2',
+        schedule: { at: new Date(r10), allowWhileIdle: true },
+        sound: 'alarm_sound',
+        extra: { alarmId: alarm.id, type: 'reminder' },
+      });
+    }
+  });
+
+  if (notifsToSchedule.length > 0) {
+    await LocalNotifications.schedule({ notifications: notifsToSchedule });
+    console.log(`[PlanTrack Native] Scheduled ${notifsToSchedule.length} native alarms/reminders on v2 channels.`);
+  }
 }
 
 function getSoundLabel(soundId) {
@@ -1256,23 +1481,37 @@ async function checkAlarms() {
   const dayName  = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][now.getDay()];
   const weekdays = ['monday','tuesday','wednesday','thursday','friday'];
   const weekends = ['saturday','sunday'];
+
   const { data } = await db.from('alarms').select('*')
-    .eq('user_id',currentUserId).eq('is_active',true).eq('time',hhmm);
+    .eq('user_id', currentUserId).eq('is_active', true);
   if (!data?.length) return;
+
   for (const alarm of data) {
-    if (ringActive) break;
-    const ringEl = document.getElementById('alarm-ring');
-    if (ringEl && ringEl.style.display === 'flex') break;
-    const todayStr = today();
-    let shouldRing = false;
-    switch (alarm.repeat) {
-      case 'none':     shouldRing = !alarm.date || alarm.date === todayStr; break;
-      case 'daily':    shouldRing = true; break;
-      case 'weekdays': shouldRing = weekdays.includes(dayName); break;
-      case 'weekends': shouldRing = weekends.includes(dayName); break;
-      case 'weekly':   shouldRing = alarm.date ? new Date(alarm.date+'T00:00:00').getDay()===now.getDay() : true; break;
+    // ── Exact alarm time: ring in-app ─────────────────────────────
+    if (alarm.time === hhmm) {
+      if (ringActive) continue;
+      const ringEl = document.getElementById('alarm-ring');
+      if (ringEl && ringEl.style.display === 'flex') continue;
+      const todayStr = today();
+      let shouldRing = false;
+      switch (alarm.repeat) {
+        case 'none':     shouldRing = !alarm.date || alarm.date === todayStr; break;
+        case 'daily':    shouldRing = true; break;
+        case 'weekdays': shouldRing = weekdays.includes(dayName); break;
+        case 'weekends': shouldRing = weekends.includes(dayName); break;
+        case 'weekly':   shouldRing = alarm.date ? new Date(alarm.date+'T00:00:00').getDay()===now.getDay() : true; break;
+      }
+      if (shouldRing) ringAlarm(alarm);
+      continue;
     }
-    if (shouldRing) ringAlarm(alarm);
+
+    // ── 15 / 10 minute in-app reminder check ─────────────────────
+    const alarmMs = getNextAlarmDate(alarm.time, alarm.date, alarm.repeat)?.getTime?.() || 0;
+    if (!alarmMs) continue;
+    const minsLeft = Math.round((alarmMs - now.getTime()) / 60000);
+    if (minsLeft === 15 || minsLeft === 10) {
+      showReminderBanner(alarm, minsLeft);
+    }
   }
 }
 
@@ -1285,6 +1524,53 @@ function ringAlarm(alarm) {
   document.getElementById('alarm-ring').style.display = 'flex';
   playSound(alarm.sound, true);
   if (window.fireAlarmNotification) window.fireAlarmNotification(alarm);
+}
+
+// ── In-app reminder banner (shown 15/10 min before alarm) ─────────
+function showReminderBanner(alarm, minsLeft) {
+  const existingId = `reminder-banner-${alarm.id}-${minsLeft}`;
+  if (document.getElementById(existingId)) return; // already shown
+
+  const banner = document.createElement('div');
+  banner.id = existingId;
+  banner.style.cssText = `
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    background:var(--surface2); border:2px solid var(--accent);
+    border-radius:16px; padding:14px 18px; z-index:9000;
+    max-width:480px; width:calc(100% - 32px);
+    box-shadow:0 8px 40px rgba(0,0,0,0.6);
+    display:flex; align-items:center; gap:14px;
+    animation:reminderSlideUp .4s cubic-bezier(.22,1,.36,1);
+    font-family:'DM Sans',sans-serif;`;
+
+  banner.innerHTML = `
+    <span style="font-size:2rem;flex-shrink:0">🔔</span>
+    <div style="flex:1">
+      <div style="font-weight:700;color:var(--accent);font-size:.95rem;margin-bottom:2px">
+        Alarm in ${minsLeft} minutes
+      </div>
+      <div style="color:var(--text2);font-size:.82rem">"${escHtml(alarm.label)}" at ${fmt12(alarm.time)}</div>
+    </div>
+    <button onclick="this.parentElement.remove()" style="
+      background:none;border:1px solid var(--border2);border-radius:8px;
+      color:var(--text3);padding:6px 10px;cursor:pointer;font-size:.8rem;
+      font-family:'DM Sans',sans-serif;white-space:nowrap;flex-shrink:0"
+      type="button">Dismiss</button>`;
+
+  // Inject animation keyframes once
+  if (!document.getElementById('reminder-anim-style')) {
+    const st = document.createElement('style');
+    st.id = 'reminder-anim-style';
+    st.textContent = `@keyframes reminderSlideUp {
+      from { opacity:0; transform:translateX(-50%) translateY(40px); }
+      to   { opacity:1; transform:translateX(-50%) translateY(0); }
+    }`;
+    document.head.appendChild(st);
+  }
+
+  document.body.appendChild(banner);
+  // Auto-dismiss after 2 minutes
+  setTimeout(() => { if (banner.parentElement) banner.remove(); }, 120000);
 }
 
 // Make globally accessible for sw integration
@@ -1308,8 +1594,8 @@ function dismissAlarm(isRemote = false) {
 
   if (isRemote) return; // Background/Remote dismissal only stops UI/Sound
 
-  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-    navigator.serviceWorker.controller.postMessage({ type:'CLEAR_ALARMS' });
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller && activeId) {
+    navigator.serviceWorker.controller.postMessage({ type:'CANCEL_ALARM_NOTIFS', data:{ alarmId: activeId } });
   }
   
   if ('Notification' in window) {
@@ -1358,6 +1644,15 @@ async function snoozeAlarm(isRemote = false) {
   };
   
   await db.from('alarms').insert(payload);
+
+  // Also tell the SW to schedule the snooze notification for background
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({
+      type: 'SNOOZE_ALARM',
+      data: { alarmId: activeId, snoozeMs: now.getTime(), label: cleanLabel }
+    });
+  }
+
   toast('Alarm snoozed for 10 minutes!', 'info');
   loadAlarms();
   dismissAlarm();
@@ -2301,6 +2596,7 @@ function applyCustomFocusTimer() {
   focusTotalSeconds = total;
   updateFocusUI();
   saveFocusState();
+  setActiveChip(null); // custom time — clear chip highlights
   const label = h > 0 ? `${h}h ${m}m ${s}s` : m > 0 ? `${m}m ${s}s` : `${s}s`;
   toast(`Timer set to ${label}. Ready?`, 'info');
 }
@@ -2318,6 +2614,7 @@ function setFocusTimer(mins) {
   if (sEl) sEl.value = 0;
   updateFocusUI();
   saveFocusState();
+  setActiveChip(mins);
   toast(`Timer set to ${mins} minutes. Ready?`, 'info');
 }
 
@@ -2413,6 +2710,7 @@ function completeFocusSession() {
   
   // Update Stats — use actual duration in seconds
   focusSessionsToday++;
+  updateFocusStreak();
   const secsAdded  = focusTotalSeconds;
   focusTotalSecs  += secsAdded;
 
@@ -2558,3 +2856,1047 @@ function _updateFocusStatsDisplay() {
   if (totalTimeEl) totalTimeEl.textContent = formatFocusTime(focusTotalSecs);
 }
 
+
+
+// ── PREVENT ACCIDENTAL CLOSURE IF ALARMS ARE ACTIVE ───────────────
+window.addEventListener('beforeunload', (e) => {
+  // Check if there are any active alarms
+  if (window.Capacitor && window.Capacitor.isNative) return; // Native apps handle background fine
+  
+  // Try to read alarms from DOM or a global variable
+  const activeAlarmsExist = document.querySelectorAll('.alarm-card:not(.off)').length > 0;
+  
+  if (activeAlarmsExist) {
+    const msg = "You have active alarms! If you close this tab, your alarms will NOT ring. Please leave the app open or minimized.";
+    e.preventDefault();
+    e.returnValue = msg;
+    return msg;
+  }
+});
+
+
+// ── CAPGO AUTO-UPDATE INITIALIZATION (Capacitor Native Only) ───────
+(function() {
+  // Wait a moment after page load to ensure Capacitor is fully loaded
+  window.addEventListener('load', () => {
+    if (!window.Capacitor || !window.Capacitor.Plugins) return;
+    
+    const { CapacitorUpdater } = window.Capacitor.Plugins;
+    if (!CapacitorUpdater) return;
+
+    // 1. Notify Capgo that the app has successfully launched (prevents rollback)
+    try {
+      CapacitorUpdater.notifyAppReady();
+      console.log('[PlanTrack Native] App ready notified to Capgo.');
+    } catch (err) {
+      console.error('[PlanTrack Native] notifyAppReady failed:', err);
+    }
+
+    // 2. Schedule a check for updates
+    setTimeout(checkForUpdates, 1500);
+
+    // 3. Check for exact alarm permission on Android
+    if (window.Capacitor.getPlatform() === 'android') {
+      const LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
+      if (LocalNotifications) {
+        LocalNotifications.checkExactNotificationSetting().then(status => {
+          if (status.exact_alarm !== 'granted') {
+            setTimeout(() => {
+              const confirmResult = confirm(
+                "PlanTrack needs 'Alarms & Reminders' permission to ring alarms in the background when the app is closed. Open Settings now to grant it?"
+              );
+              if (confirmResult) {
+                LocalNotifications.changeExactNotificationSetting();
+              }
+            }, 3000);
+          }
+        }).catch(e => console.warn('Launch exact alarm check failed:', e));
+      }
+    }
+
+    async function checkForUpdates() {
+      try {
+        console.log('[PlanTrack Native] Checking for live updates...');
+        const latest = await CapacitorUpdater.getLatest();
+        console.log('[PlanTrack Native] getLatest result:', latest);
+
+        // If a new version is available and it's different from the current version
+        if (latest && latest.version && latest.version !== latest.current) {
+          showForceUpdateUI(latest);
+        } else {
+          console.log('[PlanTrack Native] App is up to date.');
+        }
+      } catch (err) {
+        console.warn('[PlanTrack Native] Live update check failed or no update available:', err);
+      }
+    }
+
+    function showForceUpdateUI(versionInfo) {
+      if (document.getElementById('capgo-update-overlay')) return;
+
+      const overlay = document.createElement('div');
+      overlay.id = 'capgo-update-overlay';
+      overlay.className = 'update-overlay';
+
+      overlay.innerHTML = `
+        <div class="update-card">
+          <div class="update-icon-wrapper">
+            <i class="fa fa-arrow-circle-up"></i>
+          </div>
+          <h2>Update Available</h2>
+          <p>A new version of PlanTrack is ready with improvements and fixes. Update now to keep using the app smoothly.</p>
+          <div class="update-version-badge">Version ${versionInfo.version}</div>
+          <button id="capgo-update-btn" class="update-btn-action">Update Now</button>
+          
+          <div id="capgo-progress-container" class="update-progress-container">
+            <div class="update-progress-label">
+              <span>Downloading update...</span>
+              <span id="capgo-progress-percent">0%</span>
+            </div>
+            <div class="update-progress-bg">
+              <div id="capgo-progress-fill" class="update-progress-fill"></div>
+            </div>
+            <div class="update-status-msg">Please do not close the app.</div>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(overlay);
+
+      const updateBtn = document.getElementById('capgo-update-btn');
+      const progressContainer = document.getElementById('capgo-progress-container');
+      const progressFill = document.getElementById('capgo-progress-fill');
+      const progressPercent = document.getElementById('capgo-progress-percent');
+
+      updateBtn.addEventListener('click', async () => {
+        updateBtn.style.display = 'none';
+        progressContainer.style.display = 'block';
+
+        let progressListener;
+        try {
+          // Listen to the download progress event
+          progressListener = await CapacitorUpdater.addListener('download', (event) => {
+            const percent = event.percent || 0;
+            progressFill.style.width = percent + '%';
+            progressPercent.textContent = Math.round(percent) + '%';
+          });
+          
+          console.log('[PlanTrack Native] Starting update download...');
+          const dlResult = await CapacitorUpdater.download(versionInfo);
+          
+          // Complete to 100% just in case
+          progressFill.style.width = '100%';
+          progressPercent.textContent = '100%';
+          
+          console.log('[PlanTrack Native] Download complete, applying update...', dlResult);
+          
+          // Brief delay for user visual completion, then apply and restart
+          setTimeout(async () => {
+            if (progressListener) progressListener.remove();
+            await CapacitorUpdater.set(dlResult);
+          }, 600);
+
+        } catch (error) {
+          console.error('[PlanTrack Native] Update download/apply failed:', error);
+          alert('Update failed. Please check your internet connection and try again.');
+          updateBtn.style.display = 'block';
+          progressContainer.style.display = 'none';
+          if (progressListener) progressListener.remove();
+        }
+      });
+    }
+  });
+})();
+
+// ── FOCUS TIMER ENHANCEMENTS ──────────────────────────────────────────
+
+// ── Chip State Management ────────────────────────────────────────────
+const CHIP_MINS = [15, 25, 45, 60, 90];
+function setActiveChip(activeMins) {
+  CHIP_MINS.forEach(m => {
+    const el = document.getElementById(`chip-${m}`);
+    if (el) el.classList.toggle('active', m === activeMins);
+  });
+}
+
+// ── Direct-Binding Custom Inputs ─────────────────────────────────────
+// Applied once the DOM is ready; listens on all 3 inputs and updates
+// the timer display live as the user types, without needing "Set" button
+function bindCustomTimerInputs() {
+  ['custom-timer-hours','custom-timer-mins','custom-timer-secs'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => {
+      if (focusIsRunning) return;
+      const h = parseInt(document.getElementById('custom-timer-hours').value) || 0;
+      const m = parseInt(document.getElementById('custom-timer-mins').value)  || 0;
+      const s = parseInt(document.getElementById('custom-timer-secs').value)  || 0;
+      const total = h * 3600 + m * 60 + s;
+      if (total > 0 && total <= 86400) {
+        focusSecondsLeft  = total;
+        focusTotalSeconds = total;
+        updateFocusUI();
+        setActiveChip(null);
+      }
+    });
+  });
+}
+
+// ── Sound Label Sync ────────────────────────────────────────────────
+function updateSoundLabel(soundId) {
+  const el = document.getElementById('current-sound-label');
+  if (!el) return;
+  const builtin = (typeof SOUNDS !== 'undefined' ? SOUNDS : []).find(s => s.id === soundId);
+  if (builtin) { el.textContent = `Sound: ${builtin.name}`; return; }
+  const user = (typeof userSounds !== 'undefined' ? userSounds : []).find(s => s.id === soundId);
+  el.textContent = user ? `Sound: ${user.name}` : 'Sound: Chime';
+}
+
+// ── Sound Bottom Sheet ───────────────────────────────────────────────
+function openSoundBottomSheet() {
+  buildSoundBottomSheet();
+  const sheet = document.getElementById('sound-bottom-sheet');
+  if (!sheet) return;
+  sheet.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSoundBottomSheet(e) {
+  if (e && e.target !== document.getElementById('sound-bottom-sheet')) return;
+  _doCloseSoundSheet();
+}
+
+function _doCloseSoundSheet() {
+  const sheet = document.getElementById('sound-bottom-sheet');
+  if (sheet) sheet.style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function buildSoundBottomSheet() {
+  const builtinEl = document.getElementById('bs-builtin-sounds');
+  const userEl    = document.getElementById('bs-user-sounds');
+  if (!builtinEl || !userEl) return;
+
+  const sounds = typeof SOUNDS !== 'undefined' ? SOUNDS : [];
+  const uSounds = typeof userSounds !== 'undefined' ? userSounds : [];
+
+  builtinEl.innerHTML = sounds.map(s => `
+    <div class="bs-sound-item ${focusCompletionSound === s.id ? 'selected' : ''}" onclick="_bsSelectSound('${s.id}')">
+      <span class="bs-emoji">${s.emoji}</span>
+      <span class="bs-name">${escHtml(s.name)}</span>
+      <button class="bs-play-btn" onclick="event.stopPropagation();previewSound('${s.id}')" type="button"><i class="fa fa-play"></i></button>
+    </div>`).join('');
+
+  userEl.innerHTML = uSounds.length ? uSounds.map(s => `
+    <div class="bs-sound-item ${focusCompletionSound === s.id ? 'selected' : ''}" onclick="_bsSelectSound('${s.id}')">
+      <span class="bs-emoji">🎵</span>
+      <span class="bs-name">${escHtml(s.name)}</span>
+      <button class="bs-play-btn" onclick="event.stopPropagation();previewSound('${s.id}')" type="button"><i class="fa fa-play"></i></button>
+      <button class="bs-del-btn" onclick="event.stopPropagation();deleteTimerSound('${s.id.replace('user-','')}','${escHtml(s.name)}')" type="button"><i class="fa fa-trash"></i></button>
+    </div>`).join('') : '<div class="timer-no-music">No music uploaded yet — tap Upload above!</div>';
+}
+
+function _bsSelectSound(id) {
+  focusCompletionSound = id;
+  saveFocusState();
+  updateSoundLabel(id);
+  buildSoundBottomSheet(); // refresh selection highlights
+  _doCloseSoundSheet();
+  toast('✅ Sound selected!', 'success');
+}
+
+// ── Daily Streak Logic ───────────────────────────────────────────────
+const STREAK_KEY = 'plantrack_focus_streak';
+
+function getFocusStreak() {
+  try {
+    const raw = localStorage.getItem(STREAK_KEY);
+    return raw ? JSON.parse(raw) : { current: 0, longest: 0, lastDate: null };
+  } catch(e) { return { current: 0, longest: 0, lastDate: null }; }
+}
+
+function saveFocusStreak(data) {
+  try { localStorage.setItem(STREAK_KEY, JSON.stringify(data)); } catch(e) {}
+}
+
+function updateFocusStreak() {
+  const todayStr = today();
+  const streak = getFocusStreak();
+
+  if (streak.lastDate === todayStr) return; // already counted today
+
+  // Is it a consecutive day?
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yStr = yesterday.toISOString().split('T')[0];
+
+  if (streak.lastDate === yStr) {
+    streak.current++;
+  } else {
+    streak.current = 1; // reset — streak broken
+  }
+  streak.longest  = Math.max(streak.longest, streak.current);
+  streak.lastDate = todayStr;
+  saveFocusStreak(streak);
+  _updateStreakDisplay(streak);
+}
+
+function _updateStreakDisplay(streak) {
+  const el = document.getElementById('focus-streak-count');
+  if (el) el.textContent = `🔥 ${streak.current} day${streak.current !== 1 ? 's' : ''}`;
+}
+
+function showStreakSplashIfNeeded() {
+  const streak = getFocusStreak();
+  _updateStreakDisplay(streak);
+  if (streak.current < 1) return; // no sessions yet — skip
+
+  // Only show the splash screen once per day
+  const todayStr = today();
+  try {
+    const lastShownDate = localStorage.getItem('plantrack_streak_splash_shown_date');
+    if (lastShownDate === todayStr) {
+      return; // already shown today
+    }
+    localStorage.setItem('plantrack_streak_splash_shown_date', todayStr);
+  } catch (e) {
+    // LocalStorage fallback
+  }
+
+  const splashEl = document.getElementById('streak-splash');
+  const numEl    = document.getElementById('streak-splash-num');
+  const msgEl    = document.getElementById('streak-splash-msg');
+  if (!splashEl) return;
+
+  if (numEl) numEl.textContent = streak.current;
+  if (msgEl) {
+    if (streak.current === 1)      msgEl.textContent = 'Great start — come back tomorrow to build your streak!';
+    else if (streak.current < 7)   msgEl.textContent = `${streak.current} days in a row! Keep the momentum going.`;
+    else if (streak.current < 30)  msgEl.textContent = `🔥 ${streak.current} days strong! You're on fire!`;
+    else                           msgEl.textContent = `🏆 ${streak.current} days! You are an absolute machine!`;
+  }
+
+  splashEl.style.display = 'flex';
+  // Auto-dismiss after 5 seconds if user doesn't tap
+  setTimeout(() => dismissStreakSplash(), 5000);
+}
+
+function dismissStreakSplash() {
+  const el = document.getElementById('streak-splash');
+  if (el) el.style.display = 'none';
+}
+
+// ── Real Social Accountability, Presence, and Admin Dashboard ─────────
+
+let activeHeartbeatInterval = null;
+let socialNotificationInterval = null;
+let activeCounterInterval = null;
+window._viewingUserId = null;
+window.currentRating = 0;
+window.adminUsersList = [];
+
+// Initialize real-time social layer
+window.initSocialReal = function() {
+  if (!currentUserId) return;
+
+  // Clear existing intervals if any
+  if (activeHeartbeatInterval) clearInterval(activeHeartbeatInterval);
+  if (socialNotificationInterval) clearInterval(socialNotificationInterval);
+  if (activeCounterInterval) clearInterval(activeCounterInterval);
+
+  // 1. Initial actions
+  updatePresence();
+  updateActivePresenceCounter();
+  checkSocialInteractions();
+  loadFriendsReal();
+
+  // 2. Set up Heartbeats/Polls
+  // Presence heartbeat every 45s
+  activeHeartbeatInterval = setInterval(updatePresence, 45000);
+
+  // Social interactions (Seen check) every 15s
+  socialNotificationInterval = setInterval(checkSocialInteractions, 15000);
+
+  // Active users count update every 30s
+  activeCounterInterval = setInterval(updateActivePresenceCounter, 30000);
+};
+
+// Heartbeat to update presence in Supabase
+async function updatePresence() {
+  if (!currentUserId) return;
+  try {
+    const { error } = await db.from('user_presence').upsert({
+      user_id: currentUserId,
+      last_seen: new Date().toISOString()
+    });
+    if (error) console.warn('Presence heartbeat error:', error.message);
+  } catch (err) {
+    console.warn('Presence update failed:', err);
+  }
+}
+
+// Check for unread Nudges / High-fives
+async function checkSocialInteractions() {
+  if (!currentUserId) return;
+  try {
+    // Select unseen notifications where current user is receiver
+    const { data, error } = await db
+      .from('social_interactions')
+      .select('id, type, sender_id, created_at')
+      .eq('receiver_id', currentUserId)
+      .eq('seen', false)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.warn('Social notifications fetch error:', error.message);
+      return;
+    }
+
+    if (data && data.length > 0) {
+      // Fetch details of senders
+      const senderIds = data.map(i => i.sender_id);
+      const { data: profiles, error: pError } = await db
+        .from('profiles')
+        .select('id, username')
+        .in('id', senderIds);
+
+      if (pError) return;
+
+      const profileMap = {};
+      profiles.forEach(p => { profileMap[p.id] = p.username; });
+
+      for (const interaction of data) {
+        const senderUsername = profileMap[interaction.sender_id] || 'Someone';
+        if (interaction.type === 'nudge') {
+          toast(`👊 Nudge! ${senderUsername} is reminding you to focus!`, 'info');
+        } else if (interaction.type === 'highfive') {
+          toast(`🙌 High-Five! ${senderUsername} sent you a high-five!`, 'success');
+        }
+
+        // Mark it as seen
+        await db.from('social_interactions').update({ seen: true }).eq('id', interaction.id);
+      }
+    }
+  } catch (err) {
+    console.warn('Social notifications error:', err);
+  }
+}
+
+// Update the live focusing counter in header/UI
+async function updateActivePresenceCounter() {
+  try {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    // Count how many users have been active in the last 5 minutes
+    const { count, error } = await db
+      .from('user_presence')
+      .select('*', { count: 'exact', head: true })
+      .gte('last_seen', fiveMinutesAgo);
+
+    if (!error && count !== null) {
+      const el = document.getElementById('live-focus-counter');
+      if (el) el.textContent = count;
+    }
+  } catch (err) {
+    console.warn('Presence count fetch failed:', err);
+  }
+}
+
+// Load accepted friends and pending requests
+async function loadFriendsReal() {
+  const container = document.getElementById('friends-list');
+  if (!container || !currentUserId) return;
+
+  try {
+    // 1. Fetch friend relations
+    const { data: friendships, error: fError } = await db
+      .from('friends')
+      .select('*')
+      .or(`user_id.eq.${currentUserId},friend_id.eq.${currentUserId}`);
+
+    if (fError) {
+      container.innerHTML = '<div style="color:var(--text3);font-size:.8rem">Error loading friends</div>';
+      return;
+    }
+
+    const acceptedFriendsIds = [];
+    const pendingIncoming = [];
+
+    friendships.forEach(f => {
+      if (f.status === 'accepted') {
+        acceptedFriendsIds.push(f.user_id === currentUserId ? f.friend_id : f.user_id);
+      } else if (f.status === 'pending' && f.friend_id === currentUserId) {
+        pendingIncoming.push(f);
+      }
+    });
+
+    let html = '';
+
+    // 2. Render pending incoming friend requests
+    if (pendingIncoming.length > 0) {
+      // Get profiles of request senders
+      const senderIds = pendingIncoming.map(p => p.user_id);
+      const { data: requestSenders } = await db
+        .from('profiles')
+        .select('id, username')
+        .in('id', senderIds);
+
+      if (requestSenders && requestSenders.length > 0) {
+        html += `<div class="pending-requests-box" style="background:rgba(240,192,64,.08);border:1px solid rgba(240,192,64,.3);border-radius:12px;padding:12px;margin-bottom:14px">
+          <div style="font-size:0.75rem;font-weight:700;color:var(--accent);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Pending Friend Requests</div>`;
+        requestSenders.forEach(sender => {
+          const reqObj = pendingIncoming.find(p => p.user_id === sender.id);
+          html += `
+            <div style="display:flex;align-items:center;justify-content:between;margin-bottom:6px;font-size:0.82rem;gap:8px">
+              <span style="flex:1;color:var(--text)">👤 <strong>${escHtml(sender.username)}</strong> wants to be friends</span>
+              <button onclick="acceptFriendReq('${reqObj.id}')" class="btn-save" style="padding:4px 8px;font-size:0.75rem">Accept</button>
+              <button onclick="declineFriendReq('${reqObj.id}')" class="btn-cancel" style="padding:4px 8px;font-size:0.75rem">Decline</button>
+            </div>`;
+        });
+        html += `</div>`;
+      }
+    }
+
+    // 3. Render Accepted Friends
+    if (acceptedFriendsIds.length === 0) {
+      html += '<div style="color:var(--text3);text-align:center;padding:20px;font-size:0.85rem">No friends added yet. Tap <strong>Find Friends</strong> on your profile page to search users!</div>';
+      container.innerHTML = html;
+      return;
+    }
+
+    // Fetch friend profiles & presence & focus
+    const { data: friendsProfiles, error: pError } = await db
+      .from('profiles')
+      .select('id, username, streak_public')
+      .in('id', acceptedFriendsIds);
+
+    if (pError || !friendsProfiles) {
+      container.innerHTML = html + '<div style="color:var(--text3);font-size:.8rem">Error fetching friend profiles</div>';
+      return;
+    }
+
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data: presences } = await db
+      .from('user_presence')
+      .select('user_id, last_seen')
+      .in('user_id', acceptedFriendsIds)
+      .gte('last_seen', fiveMinutesAgo);
+
+    const activeMap = {};
+    if (presences) {
+      presences.forEach(p => { activeMap[p.user_id] = true; });
+    }
+
+    const listHtml = friendsProfiles.map(friend => {
+      const isOnline = !!activeMap[friend.id];
+      const initial = (friend.username || '?').charAt(0).toUpperCase();
+      const streakVal = friend.streak_public || 0;
+
+      // Get gradient color based on username
+      const charCode = (friend.username || '').charCodeAt(0) || 65;
+      const gradients = [
+        'linear-gradient(135deg,#4a90e2,#9b59b6)',
+        'linear-gradient(135deg,#e07b3a,#f0c040)',
+        'linear-gradient(135deg,#27ae60,#4a90e2)',
+        'linear-gradient(135deg,#e74c3c,#9b59b6)'
+      ];
+      const grad = gradients[charCode % gradients.length];
+
+      return `
+        <div class="friend-item" id="fi-${friend.id}">
+          <div class="friend-avatar" style="background:${grad};cursor:pointer" onclick="showUserProfile('${friend.id}')">${initial}</div>
+          <div class="friend-info" style="cursor:pointer" onclick="showUserProfile('${friend.id}')">
+            <div class="friend-name">${escHtml(friend.username)} <span style="font-size:0.75rem">🔥 ${streakVal}</span></div>
+            <div class="friend-status ${isOnline ? 'focusing' : ''}">
+              <span class="sdot"></span>
+              ${isOnline ? 'Active right now' : 'Offline'}
+            </div>
+          </div>
+          <div class="friend-actions">
+            <button class="friend-action-btn nudge" onclick="sendNudge('${friend.id}','${escHtml(friend.username)}')" type="button">👊 Nudge</button>
+            <button class="friend-action-btn hifi"  onclick="sendHighFive('${friend.id}','${escHtml(friend.username)}')" type="button">🙌 Hi-5</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    container.innerHTML = html + listHtml;
+  } catch (err) {
+    console.warn('loadFriendsReal error:', err);
+  }
+}
+
+// Friend actions: nudge and highfive
+async function sendNudge(friendId, friendName) {
+  if (!currentUserId) return;
+  try {
+    const { error } = await db.from('social_interactions').insert({
+      sender_id: currentUserId,
+      receiver_id: friendId,
+      type: 'nudge'
+    });
+    if (error) {
+      toast('Could not send nudge: ' + error.message, 'error');
+    } else {
+      toast(`👊 Nudge sent to ${friendName}!`, 'success');
+      const btn = document.querySelector(`#fi-${friendId} .nudge`);
+      if (btn) { btn.textContent = '✅ Nudged!'; btn.disabled = true; }
+    }
+  } catch (err) {
+    console.warn('sendNudge error:', err);
+  }
+}
+
+async function sendHighFive(friendId, friendName) {
+  if (!currentUserId) return;
+  try {
+    const { error } = await db.from('social_interactions').insert({
+      sender_id: currentUserId,
+      receiver_id: friendId,
+      type: 'highfive'
+    });
+    if (error) {
+      toast('Could not send high-five: ' + error.message, 'error');
+    } else {
+      toast(`🙌 High-five sent to ${friendName}!`, 'success');
+      const btn = document.querySelector(`#fi-${friendId} .hifi`);
+      if (btn) { btn.textContent = '✅ Hi-5!'; btn.disabled = true; }
+    }
+  } catch (err) {
+    console.warn('sendHighFive error:', err);
+  }
+}
+
+// Accept friend request
+async function acceptFriendReq(requestId) {
+  try {
+    const { error } = await db.from('friends').update({ status: 'accepted' }).eq('id', requestId);
+    if (error) {
+      toast('Could not accept request: ' + error.message, 'error');
+    } else {
+      toast('Friend request accepted!', 'success');
+      loadFriendsReal();
+    }
+  } catch (err) {
+    console.warn(err);
+  }
+}
+
+// Decline/delete friend request
+async function declineFriendReq(requestId) {
+  try {
+    const { error } = await db.from('friends').delete().eq('id', requestId);
+    if (error) {
+      toast('Could not decline request: ' + error.message, 'error');
+    } else {
+      toast('Friend request declined.', 'info');
+      loadFriendsReal();
+    }
+  } catch (err) {
+    console.warn(err);
+  }
+}
+
+// Search users by username (real-time debounced)
+let searchTimeout = null;
+window.searchUsersDebounced = function() {
+  if (searchTimeout) clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(searchUsersReal, 300);
+};
+
+async function searchUsersReal() {
+  const query = document.getElementById('friend-search-input').value.trim();
+  const resultsContainer = document.getElementById('friend-search-results');
+  if (!resultsContainer) return;
+
+  if (query.length < 2) {
+    resultsContainer.innerHTML = '<div style="color:var(--text3);font-size:.85rem;text-align:center;padding:20px">Type at least 2 characters to search...</div>';
+    return;
+  }
+
+  resultsContainer.innerHTML = '<div style="color:var(--text3);font-size:.85rem;text-align:center;padding:20px">Searching...</div>';
+
+  try {
+    // 1. Fetch matching profiles (excluding current user)
+    const { data: matchedUsers, error } = await db
+      .from('profiles')
+      .select('id, username, streak_public')
+      .neq('id', currentUserId)
+      .ilike('username', `%${query}%`)
+      .limit(10);
+
+    if (error) {
+      resultsContainer.innerHTML = `<div style="color:var(--text3);font-size:.85rem;text-align:center;padding:20px">Search failed: ${error.message}</div>`;
+      return;
+    }
+
+    if (!matchedUsers || matchedUsers.length === 0) {
+      resultsContainer.innerHTML = '<div style="color:var(--text3);font-size:.85rem;text-align:center;padding:20px">No users found matching that name</div>';
+      return;
+    }
+
+    // 2. Fetch existing relations to show correct action buttons
+    const targetUserIds = matchedUsers.map(u => u.id);
+    const { data: relations } = await db
+      .from('friends')
+      .select('*')
+      .or(`user_id.eq.${currentUserId},friend_id.eq.${currentUserId}`)
+      .in('user_id', targetUserIds.concat(currentUserId))
+      .in('friend_id', targetUserIds.concat(currentUserId));
+
+    const relationMap = {};
+    if (relations) {
+      relations.forEach(rel => {
+        const otherId = rel.user_id === currentUserId ? rel.friend_id : rel.user_id;
+        relationMap[otherId] = rel;
+      });
+    }
+
+    // 3. Render matching user cards
+    resultsContainer.innerHTML = matchedUsers.map(u => {
+      const rel = relationMap[u.id];
+      let actionBtn = '';
+      if (!rel) {
+        actionBtn = `<button onclick="sendFriendReq('${u.id}')" class="btn-save" style="padding:6px 12px;font-size:0.75rem"><i class="fa fa-user-plus"></i> Add</button>`;
+      } else if (rel.status === 'accepted') {
+        actionBtn = `<span style="color:var(--green);font-size:0.75rem;font-weight:700"><i class="fa fa-check"></i> Friends</span>`;
+      } else if (rel.status === 'pending') {
+        if (rel.user_id === currentUserId) {
+          actionBtn = `<span style="color:var(--accent);font-size:0.75rem;font-weight:700">Requested</span>`;
+        } else {
+          actionBtn = `<button onclick="acceptFriendReq('${rel.id}')" class="btn-save" style="padding:6px 12px;font-size:0.75rem">Accept</button>`;
+        }
+      }
+
+      const initial = (u.username || '?').charAt(0).toUpperCase();
+
+      return `
+        <div class="fs-result-item">
+          <div class="fs-user-details" onclick="showUserProfile('${u.id}')">
+            <div class="fs-avatar">${initial}</div>
+            <div>
+              <div class="fs-name">${escHtml(u.username)}</div>
+              <div style="font-size:0.7rem;color:var(--text3);margin-top:2px">🔥 Streak: ${u.streak_public || 0}</div>
+            </div>
+          </div>
+          <div class="fs-action-wrapper" id="action-wrap-${u.id}">
+            ${actionBtn}
+          </div>
+        </div>`;
+    }).join('');
+  } catch (err) {
+    console.warn(err);
+  }
+}
+
+// Send friend request from search results or user profile modal
+window.sendFriendReq = async function(targetUserId) {
+  if (!targetUserId || !currentUserId) return;
+  try {
+    const { error } = await db.from('friends').insert({
+      user_id: currentUserId,
+      friend_id: targetUserId,
+      status: 'pending'
+    });
+
+    if (error) {
+      toast('Could not send friend request: ' + error.message, 'error');
+    } else {
+      toast('Friend request sent!', 'success');
+      // Update results UI if open
+      const wrap = document.getElementById(`action-wrap-${targetUserId}`);
+      if (wrap) {
+        wrap.innerHTML = `<span style="color:var(--accent);font-size:0.75rem;font-weight:700">Requested</span>`;
+      }
+      // Update profile modal button if open
+      const pModalBtn = document.getElementById('up-add-friend-btn');
+      if (pModalBtn) {
+        pModalBtn.innerHTML = '<i class="fa fa-clock"></i> Request Pending';
+        pModalBtn.disabled = true;
+      }
+      loadFriendsReal();
+    }
+  } catch (err) {
+    console.warn(err);
+  }
+};
+
+// Show a specific user's public statistics on a modal card
+window.showUserProfile = async function(userId) {
+  if (!userId) return;
+  window._viewingUserId = userId;
+  openModal('modal-user-profile');
+
+  // Set loading state
+  document.getElementById('up-avatar').textContent = '?';
+  document.getElementById('up-username').textContent = 'Loading...';
+  document.getElementById('up-joined').textContent = '';
+  document.getElementById('up-streak').textContent = '';
+  document.getElementById('up-sessions').textContent = '—';
+  document.getElementById('up-focus-mins').textContent = '—';
+
+  const addFriendBtn = document.getElementById('up-add-friend-btn');
+  if (addFriendBtn) {
+    addFriendBtn.style.display = 'none';
+    addFriendBtn.disabled = false;
+    addFriendBtn.innerHTML = '<i class="fa fa-user-plus"></i> Add Friend';
+  }
+
+  try {
+    // 1. Fetch public profile stats view
+    const { data, error } = await db
+      .from('public_profile_stats')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error || !data) {
+      document.getElementById('up-username').textContent = 'User Profile';
+      document.getElementById('up-joined').textContent = 'Failed to load details.';
+      return;
+    }
+
+    document.getElementById('up-avatar').textContent = (data.username || '?').charAt(0).toUpperCase();
+    document.getElementById('up-username').textContent = data.username || 'Anonymous User';
+    document.getElementById('up-joined').textContent = `Joined ${fmtDate(data.joined_at?.split('T')[0] || today())}`;
+    document.getElementById('up-streak').textContent = `🔥 Streak: ${data.streak_public || 0} days`;
+    document.getElementById('up-sessions').textContent = data.total_sessions || 0;
+    document.getElementById('up-focus-mins').textContent = data.total_focus_mins || 0;
+
+    // 2. Fetch friendship relation to show/hide "Add Friend" option
+    if (userId !== currentUserId && addFriendBtn) {
+      addFriendBtn.style.display = 'block';
+      const { data: rel, error: rError } = await db
+        .from('friends')
+        .select('*')
+        .or(`user_id.eq.${currentUserId},friend_id.eq.${currentUserId}`)
+        .or(`user_id.eq.${userId},friend_id.eq.${userId}`)
+        .single();
+
+      if (!rError && rel) {
+        if (rel.status === 'accepted') {
+          addFriendBtn.innerHTML = '<i class="fa fa-check"></i> Already Friends';
+          addFriendBtn.disabled = true;
+        } else if (rel.status === 'pending') {
+          if (rel.user_id === currentUserId) {
+            addFriendBtn.innerHTML = '<i class="fa fa-clock"></i> Request Pending';
+            addFriendBtn.disabled = true;
+          } else {
+            addFriendBtn.innerHTML = 'Accept Friend Request';
+            addFriendBtn.onclick = () => acceptFriendReq(rel.id);
+          }
+        }
+      } else {
+        // No relation: allow sending
+        addFriendBtn.onclick = () => sendFriendReq(userId);
+      }
+    }
+  } catch (err) {
+    console.warn(err);
+  }
+};
+
+// ── Star Ratings & Feedback System ───────────────────────────────────
+
+window.setRating = function(ratingVal) {
+  window.currentRating = ratingVal;
+  const stars = document.querySelectorAll('#star-rating-row .star');
+  stars.forEach((star, index) => {
+    if (index < ratingVal) {
+      star.classList.add('selected');
+    } else {
+      star.classList.remove('selected');
+    }
+  });
+};
+
+window.submitFeedback = async function() {
+  if (!currentUserId) return;
+  if (window.currentRating === 0) {
+    toast('Please select at least 1 star rating!', 'error');
+    return;
+  }
+
+  const commentVal = document.getElementById('feedback-comment').value.trim();
+
+  try {
+    const { error } = await db.from('feedback').upsert({
+      user_id: currentUserId,
+      rating: window.currentRating,
+      comment: commentVal,
+      created_at: new Date().toISOString()
+    });
+
+    if (error) {
+      toast('Failed to submit feedback: ' + error.message, 'error');
+    } else {
+      toast('⭐ Thank you for your feedback!', 'success');
+      closeModal('modal-feedback');
+      // Reset modal values
+      setRating(0);
+      document.getElementById('feedback-comment').value = '';
+    }
+  } catch (err) {
+    console.warn(err);
+  }
+};
+
+// ── Admin Dashboard System ───────────────────────────────────────────
+
+window.loadAdminPanel = async function() {
+  if (!currentUserProfile || !currentUserProfile.is_admin) {
+    toast('Unauthorized: Admin access only.', 'error');
+    showSection('alarms');
+    return;
+  }
+
+  // Load Admin Metrics
+  try {
+    const [profilesCount, focusSessions, feedbackList] = await Promise.all([
+      db.from('profiles').select('id', { count: 'exact', head: true }),
+      db.from('focus_sessions').select('duration_mins'),
+      db.from('feedback').select('rating, comment')
+    ]);
+
+    // Render Metrics
+    const totalUsers = profilesCount.count || 0;
+    const totalSessions = focusSessions.data ? focusSessions.data.length : 0;
+    const totalFocusMins = focusSessions.data ? focusSessions.data.reduce((sum, s) => sum + (s.duration_mins || 0), 0) : 0;
+    const totalFocusHours = Math.round(totalFocusMins / 60);
+
+    const feedbackCount = feedbackList.data ? feedbackList.data.length : 0;
+    const avgRating = feedbackCount > 0 ? (feedbackList.data.reduce((sum, f) => sum + f.rating, 0) / feedbackCount).toFixed(1) : '—';
+
+    document.getElementById('admin-total-users').textContent = totalUsers;
+    document.getElementById('admin-total-focus').textContent = `${totalFocusHours}h`;
+    document.getElementById('admin-avg-rating').textContent = `${avgRating} ★`;
+    document.getElementById('admin-total-feedback').textContent = feedbackCount;
+
+    // Load admin user list view via function
+    const { data: userOverview, error } = await db.rpc('get_admin_overview');
+
+    if (error) {
+      console.warn('RPC get_admin_overview error:', error.message);
+      document.getElementById('admin-table-body').innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text3)">Error loading user overview: ${error.message}</td></tr>`;
+    } else if (userOverview) {
+      window.adminUsersList = userOverview;
+      renderAdminUsersTable(userOverview);
+    }
+
+    // Load feedback listings
+    const { data: feedBackWithUser } = await db
+      .from('feedback')
+      .select('rating, comment, created_at, profiles(username)')
+      .order('created_at', { ascending: false });
+
+    const feedListContainer = document.getElementById('admin-feedback-list');
+    if (feedListContainer) {
+      if (!feedBackWithUser || feedBackWithUser.length === 0) {
+        feedListContainer.innerHTML = '<div style="color:var(--text3);font-size:.85rem;text-align:center;padding:15px">No user reviews submitted yet.</div>';
+      } else {
+        feedListContainer.innerHTML = feedBackWithUser.map(fb => {
+          const author = fb.profiles?.username || 'Unknown User';
+          const starsHtml = '★'.repeat(fb.rating) + '☆'.repeat(5 - fb.rating);
+          const dateStr = fmtDate(fb.created_at?.split('T')[0] || today());
+          const authorInitial = author.charAt(0).toUpperCase();
+
+          return `
+            <div class="feedback-card">
+              <div class="feedback-header">
+                <div class="feedback-user-info">
+                  <div class="feedback-avatar">${authorInitial}</div>
+                  <div>
+                    <span class="feedback-username">${escHtml(author)}</span>
+                    <div class="feedback-date">${dateStr}</div>
+                  </div>
+                </div>
+                <div class="feedback-rating-stars">${starsHtml}</div>
+              </div>
+              ${fb.comment ? `<p class="feedback-comment-text">${escHtml(fb.comment)}</p>` : '<p class="feedback-comment-text" style="font-style:italic;color:var(--text3)">No comment left</p>'}
+            </div>`;
+        }).join('');
+      }
+    }
+
+  } catch (err) {
+    console.warn(err);
+  }
+};
+
+function renderAdminUsersTable(users) {
+  const tbody = document.getElementById('admin-table-body');
+  if (!tbody) return;
+
+  if (users.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text3)">No matching users found</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = users.map(u => {
+    const avatarLetter = (u.username || '?').charAt(0).toUpperCase();
+    const joined = fmtDate(u.joined_at?.split('T')[0] || today());
+    const focusHrs = Math.round((u.total_focus_mins || 0) / 60);
+    const lastActive = u.last_focus_at ? fmtDate(u.last_focus_at?.split('T')[0]) : 'Never';
+    const adminTag = u.is_admin ? '<span style="color:var(--accent);font-size:.7rem;font-weight:700;margin-left:5px">[ADMIN]</span>' : '';
+
+    return `
+      <tr>
+        <td>
+          <div class="user-cell" style="cursor:pointer" onclick="showUserProfile('${u.id}')">
+            <div class="avatar-cell">${avatarLetter}</div>
+            <div>
+              <strong>${escHtml(u.username || 'Anonymous')}</strong>${adminTag}
+            </div>
+          </div>
+        </td>
+        <td>${escHtml(u.email || '—')}</td>
+        <td>${joined}</td>
+        <td>${u.total_sessions || 0}</td>
+        <td>${focusHrs}h</td>
+        <td>${lastActive}</td>
+        <td style="text-align:right">
+          <button onclick="showUserProfile('${u.id}')" class="btn-outline-sm" style="padding:4px 8px;font-size:0.75rem"><i class="fa fa-eye"></i> Profile</button>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+window.filterAdminTable = function() {
+  const query = document.getElementById('admin-search-input').value.toLowerCase().trim();
+  if (!query) {
+    renderAdminUsersTable(window.adminUsersList);
+    return;
+  }
+
+  const filtered = window.adminUsersList.filter(u => {
+    const name = (u.username || '').toLowerCase();
+    const email = (u.email || '').toLowerCase();
+    return name.includes(query) || email.includes(query);
+  });
+
+  renderAdminUsersTable(filtered);
+};
+
+
+// Hook into showSection to lazy-init Focus Timer extras and real-time social layers
+function initFocusTimerExtras() {
+  bindCustomTimerInputs();
+  updateSoundLabel(focusCompletionSound || 'chime');
+  loadFriendsReal();
+  showStreakSplashIfNeeded();
+}
+
+(function patchShowSection() {
+  const FOCUS_SECTION = 'focustimer';
+  let _focusExtrasInit = false;
+  const origFn = window.showSection;
+  if (typeof origFn !== 'function') {
+    window.addEventListener('load', patchShowSection);
+    return;
+  }
+  window.showSection = function(name, ...args) {
+    origFn(name, ...args);
+    if (name === FOCUS_SECTION && !_focusExtrasInit) {
+      setTimeout(initFocusTimerExtras, 150);
+      _focusExtrasInit = true;
+    }
+  };
+})();
