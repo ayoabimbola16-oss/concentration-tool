@@ -901,6 +901,11 @@ async function loadProfile() {
     const ls = currentUserProfile.longest_streak || 0;
     streakEl.textContent = `🔥 ${cs} Day Streak (Best: ${ls})`;
   }
+
+  // Load friends and requests for the profile friends section
+  if (typeof loadFriendsReal === 'function') {
+    loadFriendsReal();
+  }
 }
 
 
@@ -3361,8 +3366,9 @@ async function updatePresence() {
     console.warn('Presence update failed:', err);
   }
 }
+let notifiedFriendRequests = new Set();
 
-// Check for unread Nudges / High-fives
+// Check for unread Nudges / High-fives and Pending Friend Requests
 async function checkSocialInteractions() {
   if (!currentUserId) return;
   try {
@@ -3404,6 +3410,43 @@ async function checkSocialInteractions() {
         await db.from('social_interactions').update({ seen: true }).eq('id', interaction.id);
       }
     }
+
+    // Check for Pending Friend Requests
+    const { data: frData, error: frError } = await db
+      .from('friends')
+      .select('id, user_id')
+      .eq('friend_id', currentUserId)
+      .eq('status', 'pending');
+
+    if (!frError && frData && frData.length > 0) {
+      const senderIds = frData.map(f => f.user_id);
+      const { data: frProfiles } = await db
+        .from('profiles')
+        .select('id, username')
+        .in('id', senderIds);
+      
+      const pMap = {};
+      if (frProfiles) {
+        frProfiles.forEach(p => { pMap[p.id] = p.username; });
+      }
+
+      frData.forEach(fr => {
+        if (!notifiedFriendRequests.has(fr.id)) {
+          notifiedFriendRequests.add(fr.id);
+          const senderName = pMap[fr.user_id] || 'Someone';
+          
+          // Request browser notification if permission granted
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('New Friend Request!', {
+              body: `${senderName} wants to be your friend.`,
+              icon: 'WhatsApp Image 2026-04-07 at 20.53.13.jpeg'
+            });
+          }
+
+          toast(`👤 ${senderName} sent you a friend request! Check your profile to accept.`, 'info');
+        }
+      });
+    }
   } catch (err) {
     console.warn('Social notifications error:', err);
   }
@@ -3431,7 +3474,9 @@ async function updateActivePresenceCounter() {
 // Load accepted friends and pending requests
 async function loadFriendsReal() {
   const container = document.getElementById('friends-list');
-  if (!container || !currentUserId) return;
+  const profileContainer = document.getElementById('profile-friends-list');
+  if (!currentUserId) return;
+  if (!container && !profileContainer) return;
 
   try {
     // 1. Fetch friend relations
@@ -3441,7 +3486,9 @@ async function loadFriendsReal() {
       .or(`user_id.eq.${currentUserId},friend_id.eq.${currentUserId}`);
 
     if (fError) {
-      container.innerHTML = '<div style="color:var(--text3);font-size:.8rem">Error loading friends</div>';
+      const errHtml = '<div style="color:var(--text3);font-size:.8rem">Error loading friends</div>';
+      if (container) container.innerHTML = errHtml;
+      if (profileContainer) profileContainer.innerHTML = errHtml;
       return;
     }
 
@@ -3486,7 +3533,8 @@ async function loadFriendsReal() {
     // 3. Render Accepted Friends
     if (acceptedFriendsIds.length === 0) {
       html += '<div style="color:var(--text3);text-align:center;padding:20px;font-size:0.85rem">No friends added yet. Tap <strong>Find Friends</strong> on your profile page to search users!</div>';
-      container.innerHTML = html;
+      if (container) container.innerHTML = html;
+      if (profileContainer) profileContainer.innerHTML = html;
       return;
     }
 
@@ -3497,7 +3545,9 @@ async function loadFriendsReal() {
       .in('id', acceptedFriendsIds);
 
     if (pError || !friendsProfiles) {
-      container.innerHTML = html + '<div style="color:var(--text3);font-size:.8rem">Error fetching friend profiles</div>';
+      const errHtml = html + '<div style="color:var(--text3);font-size:.8rem">Error fetching friend profiles</div>';
+      if (container) container.innerHTML = errHtml;
+      if (profileContainer) profileContainer.innerHTML = errHtml;
       return;
     }
 
@@ -3545,7 +3595,8 @@ async function loadFriendsReal() {
         </div>`;
     }).join('');
 
-    container.innerHTML = html + listHtml;
+    if (container) container.innerHTML = html + listHtml;
+    if (profileContainer) profileContainer.innerHTML = html + listHtml;
   } catch (err) {
     console.warn('loadFriendsReal error:', err);
   }
