@@ -622,10 +622,18 @@ async function login() {
 
 async function signInWithGoogle() {
   try {
+    // Build the redirect URL from the current page location
+    const currentUrl = window.location.href.split('#')[0].split('?')[0];
+    
+    // Warn if the user is on a device that can't reach localhost
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      console.warn('Google Sign-In: Redirecting to', currentUrl, '— if on another device, use the host machine IP instead of localhost.');
+    }
+
     const { data, error } = await db.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin + window.location.pathname
+        redirectTo: currentUrl
       }
     });
     if (error) throw error;
@@ -4532,10 +4540,28 @@ function buildMessageRow(msg) {
     bubbleContent = buildSharedCard(msg);
   }
 
+  let reactionsHtml = '';
+  if (msg.reactions && Object.keys(msg.reactions).length > 0) {
+    reactionsHtml = '<div class="msg-reactions-list">';
+    for (const [emoji, users] of Object.entries(msg.reactions)) {
+      if (users.length > 0) {
+        const reactedByMe = users.includes(currentUserId);
+        reactionsHtml += `<div class="reaction-badge ${reactedByMe ? 'reacted-by-me' : ''}" onclick="toggleReaction('${msg.id}', '${emoji}')">
+          ${emoji} <span>${users.length}</span>
+        </div>`;
+      }
+    }
+    reactionsHtml += '</div>';
+  }
+
   row.innerHTML = `
     <div class="msg-avatar-sm">${avatarHTML}</div>
     <div class="msg-content-wrapper">
-      ${bubbleContent}
+      <div class="msg-bubble-row">
+        ${bubbleContent}
+        <button class="msg-reaction-btn" onclick="showReactionPicker('${msg.id}', this)" type="button" title="React"><i class="fa fa-smile"></i></button>
+      </div>
+      ${reactionsHtml}
       <div class="msg-time">${chatFormatTime(msg.created_at)}${isSent ? ' ✓' : ''}</div>
     </div>
   `;
@@ -4687,13 +4713,19 @@ function subscribeToChatMessages() {
 
   chatRealtimeChannel = db.channel('chat-messages-' + currentUserId)
     .on('postgres_changes', {
-      event: 'INSERT',
+      event: '*',
       schema: 'public',
-      table: 'messages',
-      filter: `receiver_id=eq.${currentUserId}`
+      table: 'messages'
     }, (payload) => {
       const msg = payload.new;
-      handleIncomingMessage(msg);
+      if (!msg) return;
+      if (msg.receiver_id === currentUserId || msg.sender_id === currentUserId) {
+         if (payload.eventType === 'INSERT' && msg.sender_id !== currentUserId) {
+            handleIncomingMessage(msg);
+         } else if (payload.eventType === 'UPDATE') {
+            handleUpdatedMessage(msg);
+         }
+      }
     })
     .subscribe();
 }
@@ -4923,3 +4955,98 @@ function viewSharedPlan(att) {
   `;
   openModal('modal-plan-view');
 }
+
+// ── Reactions ───────────────────────────────────────────────────
+
+function handleUpdatedMessage(msg) {
+  const friendId = msg.sender_id === currentUserId ? msg.receiver_id : msg.sender_id;
+  if (activeChatFriendId === friendId) {
+    const row = document.getElementById(`msg-${msg.id}`);
+    if (row) {
+      const newRow = buildMessageRow(msg);
+      row.parentNode.replaceChild(newRow, row);
+    }
+  }
+}
+
+let activeReactionPickerMsgId = null;
+
+window.showReactionPicker = function(msgId, btnElement) {
+  closeReactionPicker();
+  
+  activeReactionPickerMsgId = msgId;
+  const picker = document.createElement('div');
+  picker.className = 'msg-reaction-picker';
+  picker.id = 'active-reaction-picker';
+  
+  const emojis = ['👍', '❤️', '😂', '🔥', '🎉', '👀'];
+  emojis.forEach(emoji => {
+    const el = document.createElement('div');
+    el.className = 'reaction-emoji';
+    el.textContent = emoji;
+    el.onclick = (e) => {
+      e.stopPropagation();
+      toggleReaction(msgId, emoji);
+      closeReactionPicker();
+    };
+    picker.appendChild(el);
+  });
+
+  const row = document.getElementById(`msg-${msgId}`);
+  if (row) {
+    const bubbleRow = row.querySelector('.msg-bubble-row');
+    if (bubbleRow) bubbleRow.appendChild(picker);
+    else row.appendChild(picker);
+  }
+};
+
+window.closeReactionPicker = function() {
+  const existing = document.getElementById('active-reaction-picker');
+  if (existing) {
+    existing.remove();
+  }
+  activeReactionPickerMsgId = null;
+};
+
+document.addEventListener('click', (e) => {
+  if (activeReactionPickerMsgId) {
+    const picker = document.getElementById('active-reaction-picker');
+    if (picker && !picker.contains(e.target) && !e.target.closest('.msg-reaction-btn')) {
+      closeReactionPicker();
+    }
+  }
+});
+
+window.toggleReaction = async function(msgId, emoji) {
+  try {
+    const { data: msgData, error: fetchErr } = await db.from('messages').select('reactions').eq('id', msgId).single();
+    if (fetchErr) throw fetchErr;
+
+    let reactions = msgData.reactions || {};
+    let users = reactions[emoji] || [];
+
+    if (users.includes(currentUserId)) {
+      users = users.filter(id => id !== currentUserId);
+    } else {
+      users.push(currentUserId);
+    }
+
+    if (users.length === 0) {
+      delete reactions[emoji];
+    } else {
+      reactions[emoji] = users;
+    }
+
+    const { data: updatedMsg, error } = await db.from('messages')
+      .update({ reactions })
+      .eq('id', msgId)
+      .select().single();
+      
+    if (error) throw error;
+    
+    handleUpdatedMessage(updatedMsg);
+  } catch (err) {
+    console.error('Error toggling reaction:', err);
+    toast('Could not update reaction', 'error');
+  }
+};

@@ -152,6 +152,74 @@ body {
 .auth-btn:hover { background:var(--accent-dark); transform:translateY(-1px); box-shadow:0 4px 16px rgba(240,192,64,0.3); }
 .auth-btn:active { transform:translateY(0); }
 
+/* ── Auth Divider ── */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+}
+.auth-divider span {
+  font-size: 0.78rem;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-weight: 600;
+}
+
+/* ── Google Sign-In Button ── */
+.google-sign-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.2px;
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.google-sign-btn::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  transition: left 0.5s;
+}
+.google-sign-btn:hover::before { left: 100%; }
+.google-sign-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.22);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(66,133,244,0.15), 0 0 0 1px rgba(66,133,244,0.1);
+}
+.google-sign-btn:active { transform: translateY(0); }
+.google-icon-wrapper {
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.google-icon { width: 22px; height: 22px; }
+
 .auth-link-row { text-align:center; margin-top:14px; }
 .txt-btn {
   background:none; border:none; color:var(--text2);
@@ -161,41 +229,6 @@ body {
 }
 .txt-btn:hover { color:var(--accent); }
 .forgot-hint { color:var(--text2); font-size:.86rem; margin-bottom:18px; line-height:1.6; }
-
-/* Google Auth Button */
-.google-btn {
-  background: #fff !important;
-  color: #333 !important;
-  border: 1.5px solid #ddd !important;
-  display: flex; align-items: center; justify-content: center;
-  gap: 10px; font-weight: 600; margin-top: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-}
-.google-btn:hover {
-  background: #f5f5f5 !important;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(0,0,0,0.15) !important;
-}
-
-/* Or Divider */
-.google-divider {
-  display: flex; align-items: center; gap: 10px;
-  margin: 14px 0 6px;
-}
-.google-divider::before,
-.google-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: rgba(255,255,255,0.1);
-}
-.google-divider span {
-  color: var(--text3);
-  font-size: 0.78rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
 
 #auth-msg {
   margin-top:14px; font-size:.83rem; padding:10px 14px;
@@ -2412,6 +2445,7 @@ body {
   max-width: 75%;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 .msg-row.sent .msg-content-wrapper {
   align-items: flex-end;
@@ -2446,6 +2480,100 @@ body {
   padding: 0 4px;
 }
 .msg-row.received .msg-time { text-align: left; }
+
+/* Reactions */
+.msg-bubble-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+.msg-row.sent .msg-bubble-row { flex-direction: row-reverse; }
+
+.msg-reaction-btn {
+  opacity: 0;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 0.2s, background 0.2s;
+  z-index: 5;
+  color: var(--text3);
+  font-size: 0.75rem;
+  flex-shrink: 0;
+  padding: 0;
+}
+.msg-row:hover .msg-reaction-btn,
+.msg-bubble-row:hover .msg-reaction-btn { opacity: 1; }
+.msg-reaction-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--surface3); }
+
+.msg-reaction-picker {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 6px 10px;
+  display: flex;
+  gap: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  z-index: 50;
+  animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  white-space: nowrap;
+}
+.msg-row.sent .msg-reaction-picker { right: 0; }
+.msg-row.received .msg-reaction-picker { left: 0; }
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.7) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.reaction-emoji {
+  cursor: pointer;
+  font-size: 1.25rem;
+  transition: transform 0.15s;
+  user-select: none;
+  padding: 2px;
+  border-radius: 6px;
+}
+.reaction-emoji:hover { transform: scale(1.35); background: rgba(255,255,255,0.08); }
+
+.msg-reactions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.msg-row.sent .msg-reactions-list { justify-content: flex-end; }
+.msg-row.received .msg-reactions-list { justify-content: flex-start; }
+
+.reaction-badge {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s, border-color 0.2s;
+}
+.reaction-badge:hover {
+  background: rgba(240,192,64,0.1);
+  border-color: var(--accent);
+}
+.reaction-badge.reacted-by-me {
+  background: rgba(240,192,64,0.15);
+  border-color: var(--accent);
+}
 
 /* Date separator */
 .chat-date-sep {
