@@ -622,10 +622,18 @@ async function login() {
 
 async function signInWithGoogle() {
   try {
+    // Build the redirect URL from the current page location
+    const currentUrl = window.location.href.split('#')[0].split('?')[0];
+    
+    // Warn if the user is on a device that can't reach localhost
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      console.warn('Google Sign-In: Redirecting to', currentUrl, '— if on another device, use the host machine IP instead of localhost.');
+    }
+
     const { data, error } = await db.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin + window.location.pathname
+        redirectTo: currentUrl
       }
     });
     if (error) throw error;
@@ -4109,6 +4117,12 @@ window.loadAdminPanel = async function() {
       console.warn('RPC get_admin_overview error:', error.message);
       document.getElementById('admin-table-body').innerHTML = `<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text3)">Error loading user overview: ${error.message}</td></tr>`;
     } else if (userOverview) {
+      const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { data: adminPres } = await db.from('user_presence').select('user_id').gte('last_seen', fiveMinsAgo);
+      const adminActiveMap = {};
+      if (adminPres) adminPres.forEach(p => adminActiveMap[p.user_id] = true);
+      userOverview.forEach(u => u.isOnline = !!adminActiveMap[u.id]);
+
       window.adminUsersList = userOverview;
       renderAdminUsersTable(userOverview);
     }
@@ -4175,9 +4189,13 @@ function renderAdminUsersTable(users) {
       <tr>
         <td>
           <div class="user-cell" style="cursor:pointer" onclick="showUserProfile('${u.id}')">
-            <div class="avatar-cell">${avatarLetter}</div>
+            <div class="avatar-cell" style="position:relative;">
+              ${avatarLetter}
+              ${u.isOnline ? '<span style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:var(--green);border-radius:50%;border:2px solid var(--surface)"></span>' : ''}
+            </div>
             <div>
               <strong>${escHtml(u.username || 'Anonymous')}</strong>${adminTag}
+              <div style="font-size:0.7rem; color:${u.isOnline ? 'var(--green)' : 'var(--text3)'}">${u.isOnline ? 'Online' : 'Offline'}</div>
             </div>
           </div>
         </td>
@@ -4290,7 +4308,17 @@ async function loadChats() {
       .select('id, username, avatar_url')
       .in('id', friendIds);
 
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data: presences } = await db.from('user_presence')
+      .select('user_id, last_seen')
+      .in('user_id', friendIds)
+      .gte('last_seen', fiveMinutesAgo);
+
+    const activeMap = {};
+    if (presences) presences.forEach(p => activeMap[p.user_id] = true);
+
     chatFriendsCache = profiles || [];
+    chatFriendsCache.forEach(p => p.isOnline = !!activeMap[p.id]);
 
     // Get last message for each friend
     const convos = await Promise.all(friendIds.map(async (fid) => {
@@ -4359,7 +4387,7 @@ function buildConvoItem(friend, lastMsg, unread) {
   div.innerHTML = `
     <div class="chat-convo-avatar">
       ${friend.avatar_url ? `<img src="${friend.avatar_url}" />` : friend.username.charAt(0).toUpperCase()}
-      <span class="chat-online-dot"></span>
+      ${friend.isOnline ? '<span class="chat-online-dot"></span>' : ''}
     </div>
     <div class="chat-convo-body">
       <div class="chat-convo-name">${friend.username}</div>
@@ -4406,8 +4434,13 @@ async function openChat(friend) {
   // Update header
   const headerAvatar = document.getElementById('chat-header-avatar');
   const headerName = document.getElementById('chat-header-name');
+  const headerStatus = document.getElementById('chat-header-status');
   if (headerAvatar) headerAvatar.innerHTML = friend.avatar_url ? `<img src="${friend.avatar_url}" />` : friend.username.charAt(0).toUpperCase();
   if (headerName) headerName.textContent = friend.username;
+  if (headerStatus) {
+    headerStatus.textContent = friend.isOnline ? 'Online' : 'Offline';
+    headerStatus.style.color = friend.isOnline ? 'var(--green)' : 'var(--text3)';
+  }
 
   // Show chat active panel
   document.getElementById('chat-window-empty').style.display = 'none';
@@ -4507,10 +4540,28 @@ function buildMessageRow(msg) {
     bubbleContent = buildSharedCard(msg);
   }
 
+  let reactionsHtml = '';
+  if (msg.reactions && Object.keys(msg.reactions).length > 0) {
+    reactionsHtml = '<div class="msg-reactions-list">';
+    for (const [emoji, users] of Object.entries(msg.reactions)) {
+      if (users.length > 0) {
+        const reactedByMe = users.includes(currentUserId);
+        reactionsHtml += `<div class="reaction-badge ${reactedByMe ? 'reacted-by-me' : ''}" onclick="toggleReaction('${msg.id}', '${emoji}')">
+          ${emoji} <span>${users.length}</span>
+        </div>`;
+      }
+    }
+    reactionsHtml += '</div>';
+  }
+
   row.innerHTML = `
     <div class="msg-avatar-sm">${avatarHTML}</div>
-    <div>
-      ${bubbleContent}
+    <div class="msg-content-wrapper">
+      <div class="msg-bubble-row">
+        ${bubbleContent}
+        <button class="msg-reaction-btn" onclick="showReactionPicker('${msg.id}', this)" type="button" title="React"><i class="fa fa-smile"></i></button>
+      </div>
+      ${reactionsHtml}
       <div class="msg-time">${chatFormatTime(msg.created_at)}${isSent ? ' ✓' : ''}</div>
     </div>
   `;
@@ -4662,13 +4713,19 @@ function subscribeToChatMessages() {
 
   chatRealtimeChannel = db.channel('chat-messages-' + currentUserId)
     .on('postgres_changes', {
-      event: 'INSERT',
+      event: '*',
       schema: 'public',
-      table: 'messages',
-      filter: `receiver_id=eq.${currentUserId}`
+      table: 'messages'
     }, (payload) => {
       const msg = payload.new;
-      handleIncomingMessage(msg);
+      if (!msg) return;
+      if (msg.receiver_id === currentUserId || msg.sender_id === currentUserId) {
+         if (payload.eventType === 'INSERT' && msg.sender_id !== currentUserId) {
+            handleIncomingMessage(msg);
+         } else if (payload.eventType === 'UPDATE') {
+            handleUpdatedMessage(msg);
+         }
+      }
     })
     .subscribe();
 }
@@ -4898,3 +4955,98 @@ function viewSharedPlan(att) {
   `;
   openModal('modal-plan-view');
 }
+
+// ── Reactions ───────────────────────────────────────────────────
+
+function handleUpdatedMessage(msg) {
+  const friendId = msg.sender_id === currentUserId ? msg.receiver_id : msg.sender_id;
+  if (activeChatFriendId === friendId) {
+    const row = document.getElementById(`msg-${msg.id}`);
+    if (row) {
+      const newRow = buildMessageRow(msg);
+      row.parentNode.replaceChild(newRow, row);
+    }
+  }
+}
+
+let activeReactionPickerMsgId = null;
+
+window.showReactionPicker = function(msgId, btnElement) {
+  closeReactionPicker();
+  
+  activeReactionPickerMsgId = msgId;
+  const picker = document.createElement('div');
+  picker.className = 'msg-reaction-picker';
+  picker.id = 'active-reaction-picker';
+  
+  const emojis = ['👍', '❤️', '😂', '🔥', '🎉', '👀'];
+  emojis.forEach(emoji => {
+    const el = document.createElement('div');
+    el.className = 'reaction-emoji';
+    el.textContent = emoji;
+    el.onclick = (e) => {
+      e.stopPropagation();
+      toggleReaction(msgId, emoji);
+      closeReactionPicker();
+    };
+    picker.appendChild(el);
+  });
+
+  const row = document.getElementById(`msg-${msgId}`);
+  if (row) {
+    const bubbleRow = row.querySelector('.msg-bubble-row');
+    if (bubbleRow) bubbleRow.appendChild(picker);
+    else row.appendChild(picker);
+  }
+};
+
+window.closeReactionPicker = function() {
+  const existing = document.getElementById('active-reaction-picker');
+  if (existing) {
+    existing.remove();
+  }
+  activeReactionPickerMsgId = null;
+};
+
+document.addEventListener('click', (e) => {
+  if (activeReactionPickerMsgId) {
+    const picker = document.getElementById('active-reaction-picker');
+    if (picker && !picker.contains(e.target) && !e.target.closest('.msg-reaction-btn')) {
+      closeReactionPicker();
+    }
+  }
+});
+
+window.toggleReaction = async function(msgId, emoji) {
+  try {
+    const { data: msgData, error: fetchErr } = await db.from('messages').select('reactions').eq('id', msgId).single();
+    if (fetchErr) throw fetchErr;
+
+    let reactions = msgData.reactions || {};
+    let users = reactions[emoji] || [];
+
+    if (users.includes(currentUserId)) {
+      users = users.filter(id => id !== currentUserId);
+    } else {
+      users.push(currentUserId);
+    }
+
+    if (users.length === 0) {
+      delete reactions[emoji];
+    } else {
+      reactions[emoji] = users;
+    }
+
+    const { data: updatedMsg, error } = await db.from('messages')
+      .update({ reactions })
+      .eq('id', msgId)
+      .select().single();
+      
+    if (error) throw error;
+    
+    handleUpdatedMessage(updatedMsg);
+  } catch (err) {
+    console.error('Error toggling reaction:', err);
+    toast('Could not update reaction', 'error');
+  }
+};
