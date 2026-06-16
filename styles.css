@@ -2408,13 +2408,24 @@ body {
   flex-shrink: 0; overflow: hidden;
 }
 .msg-avatar-sm img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.msg-content-wrapper {
+  max-width: 75%;
+  display: flex;
+  flex-direction: column;
+}
+.msg-row.sent .msg-content-wrapper {
+  align-items: flex-end;
+}
+.msg-row.received .msg-content-wrapper {
+  align-items: flex-start;
+}
 .msg-bubble {
-  max-width: 65%;
   padding: 10px 14px;
   border-radius: 18px;
   font-size: 0.88rem;
   line-height: 1.5;
   word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 .msg-row.sent .msg-bubble {
   background: linear-gradient(135deg, var(--accent), #d4a017);

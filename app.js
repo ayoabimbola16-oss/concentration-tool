@@ -4109,6 +4109,12 @@ window.loadAdminPanel = async function() {
       console.warn('RPC get_admin_overview error:', error.message);
       document.getElementById('admin-table-body').innerHTML = `<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text3)">Error loading user overview: ${error.message}</td></tr>`;
     } else if (userOverview) {
+      const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { data: adminPres } = await db.from('user_presence').select('user_id').gte('last_seen', fiveMinsAgo);
+      const adminActiveMap = {};
+      if (adminPres) adminPres.forEach(p => adminActiveMap[p.user_id] = true);
+      userOverview.forEach(u => u.isOnline = !!adminActiveMap[u.id]);
+
       window.adminUsersList = userOverview;
       renderAdminUsersTable(userOverview);
     }
@@ -4175,9 +4181,13 @@ function renderAdminUsersTable(users) {
       <tr>
         <td>
           <div class="user-cell" style="cursor:pointer" onclick="showUserProfile('${u.id}')">
-            <div class="avatar-cell">${avatarLetter}</div>
+            <div class="avatar-cell" style="position:relative;">
+              ${avatarLetter}
+              ${u.isOnline ? '<span style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:var(--green);border-radius:50%;border:2px solid var(--surface)"></span>' : ''}
+            </div>
             <div>
               <strong>${escHtml(u.username || 'Anonymous')}</strong>${adminTag}
+              <div style="font-size:0.7rem; color:${u.isOnline ? 'var(--green)' : 'var(--text3)'}">${u.isOnline ? 'Online' : 'Offline'}</div>
             </div>
           </div>
         </td>
@@ -4290,7 +4300,17 @@ async function loadChats() {
       .select('id, username, avatar_url')
       .in('id', friendIds);
 
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data: presences } = await db.from('user_presence')
+      .select('user_id, last_seen')
+      .in('user_id', friendIds)
+      .gte('last_seen', fiveMinutesAgo);
+
+    const activeMap = {};
+    if (presences) presences.forEach(p => activeMap[p.user_id] = true);
+
     chatFriendsCache = profiles || [];
+    chatFriendsCache.forEach(p => p.isOnline = !!activeMap[p.id]);
 
     // Get last message for each friend
     const convos = await Promise.all(friendIds.map(async (fid) => {
@@ -4359,7 +4379,7 @@ function buildConvoItem(friend, lastMsg, unread) {
   div.innerHTML = `
     <div class="chat-convo-avatar">
       ${friend.avatar_url ? `<img src="${friend.avatar_url}" />` : friend.username.charAt(0).toUpperCase()}
-      <span class="chat-online-dot"></span>
+      ${friend.isOnline ? '<span class="chat-online-dot"></span>' : ''}
     </div>
     <div class="chat-convo-body">
       <div class="chat-convo-name">${friend.username}</div>
@@ -4406,8 +4426,13 @@ async function openChat(friend) {
   // Update header
   const headerAvatar = document.getElementById('chat-header-avatar');
   const headerName = document.getElementById('chat-header-name');
+  const headerStatus = document.getElementById('chat-header-status');
   if (headerAvatar) headerAvatar.innerHTML = friend.avatar_url ? `<img src="${friend.avatar_url}" />` : friend.username.charAt(0).toUpperCase();
   if (headerName) headerName.textContent = friend.username;
+  if (headerStatus) {
+    headerStatus.textContent = friend.isOnline ? 'Online' : 'Offline';
+    headerStatus.style.color = friend.isOnline ? 'var(--green)' : 'var(--text3)';
+  }
 
   // Show chat active panel
   document.getElementById('chat-window-empty').style.display = 'none';
@@ -4509,7 +4534,7 @@ function buildMessageRow(msg) {
 
   row.innerHTML = `
     <div class="msg-avatar-sm">${avatarHTML}</div>
-    <div>
+    <div class="msg-content-wrapper">
       ${bubbleContent}
       <div class="msg-time">${chatFormatTime(msg.created_at)}${isSent ? ' ✓' : ''}</div>
     </div>
