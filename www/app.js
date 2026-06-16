@@ -86,6 +86,14 @@ let ringAlarmId             = null;
 let ringAlarmRepeat         = 'none';
 let countdownInterval       = null;
 
+// ── Chat State ───────────────────────────────────────────────────
+let activeChatFriendId      = null;
+let activeChatFriendProfile = null;
+let chatRealtimeChannel     = null;
+let chatFriendsCache        = [];
+let chatMessagesCache       = {};
+let activeSharePickerType   = null;
+
 
 // ── Built-in Sounds ──────────────────────────────────────────────
 const SOUNDS = [
@@ -612,14 +620,30 @@ async function login() {
   }
 }
 
+async function signInWithGoogle() {
+  try {
+    const { data, error } = await db.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin + window.location.pathname
+      }
+    });
+    if (error) throw error;
+  } catch (err) {
+    showAuthMsg('Error signing in with Google: ' + err.message);
+  }
+}
+
 async function register() {
   const username = document.getElementById('r-user').value.trim();
   const email    = document.getElementById('r-email').value.trim();
   const password = document.getElementById('r-pass').value;
+  const confirmPassword = document.getElementById('r-pass-confirm').value;
 
   if (!username) { showAuthMsg('Please enter a username.'); return; }
   if (!email)    { showAuthMsg('Please enter your email.'); return; }
   if (!password) { showAuthMsg('Please enter a password.'); return; }
+  if (password !== confirmPassword) { showAuthMsg('Passwords do not match.'); return; }
   if (password.length < 6) { showAuthMsg('Password must be at least 6 characters.'); return; }
   if (!/^[a-zA-Z0-9_]+$/.test(username)) { showAuthMsg('Username can only contain letters, numbers and underscores.'); return; }
 
@@ -681,7 +705,35 @@ async function initApp(user) {
   currentUserId = user.id;
 
   // Load profile
-  const { data: profile } = await db.from('profiles').select('*').eq('id', user.id).single();
+  let { data: profile } = await db.from('profiles').select('*').eq('id', user.id).maybeSingle();
+  
+  const needsProfileSetup = !profile || !profile.username || !profile.avatar_url;
+
+  if (needsProfileSetup) {
+    // Pre-fill username if they already have one (only avatar missing)
+    if (profile && profile.username) {
+      const setupInput = document.getElementById('setup-username-input');
+      if (setupInput) setupInput.value = profile.username;
+    }
+
+    // Show the complete profile modal
+    openModal('modal-complete-profile');
+
+    // Update modal subtitle based on what's missing
+    const modalP = document.querySelector('#modal-complete-profile .mb p');
+    if (modalP) {
+      if (!profile || !profile.username) {
+        modalP.textContent = 'Welcome! Please choose a username and upload a profile picture to continue.';
+      } else {
+        modalP.textContent = 'Almost there! Please upload a profile picture to complete your account setup.';
+      }
+    }
+
+    // Hide the close button to force completion
+    const closeBtn = document.querySelector('#modal-complete-profile .mclose');
+    if (closeBtn) closeBtn.style.display = 'none';
+  }
+
   currentUserProfile = profile;
 
   const displayName = profile?.username || user.email;
@@ -819,6 +871,7 @@ function showSection(name) {
     files:        loadFolders,
     plans:        loadPlans,
     profile:      loadProfile,
+    chats:        loadChats,
     admin:        () => { if (window.loadAdminPanel) window.loadAdminPanel(); },
     focustimer:   loadFocusStats,
     social:       () => { if(window.loadFriends) loadFriends(); if(window.loadSharedWithMe) loadSharedWithMe(); },
@@ -925,6 +978,97 @@ async function saveProfile() {
   closeModal('modal-edit-profile');
   document.getElementById('disp-user').textContent = val;
   loadProfile();
+}
+
+let pendingSetupAvatarFile = null;
+
+function setupAvatar(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { toast('Please select an image', 'error'); return; }
+  
+  pendingSetupAvatarFile = file;
+  
+  // Show local preview
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const display = document.getElementById('setup-avatar-display');
+    if (display) {
+      display.style.backgroundImage = `url(${e.target.result})`;
+      display.style.backgroundSize = 'cover';
+      display.style.backgroundPosition = 'center';
+      display.textContent = ''; // clear the '?'
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+async function saveCompleteProfile() {
+  const usernameInput = document.getElementById('setup-username-input');
+  const val = usernameInput ? usernameInput.value.trim() : '';
+
+  if (!val) { toast('Please choose a username', 'error'); return; }
+  if (!/^[a-zA-Z0-9_]+$/.test(val)) { toast('Username can only contain letters, numbers and underscores.', 'error'); return; }
+
+  // Require a profile picture if they don't already have one
+  const hasExistingAvatar = currentUserProfile && currentUserProfile.avatar_url;
+  if (!hasExistingAvatar && !pendingSetupAvatarFile) {
+    toast('Please upload a profile picture to continue.', 'error');
+    // Shake the avatar area to draw attention
+    const avatarDisplay = document.getElementById('setup-avatar-display');
+    if (avatarDisplay) {
+      avatarDisplay.style.animation = 'none';
+      avatarDisplay.style.border = '2px solid var(--red)';
+      setTimeout(() => { avatarDisplay.style.border = ''; }, 2000);
+    }
+    return;
+  }
+
+  showUploadProgress(true, 10, 'Saving profile...');
+
+  try {
+    // Check if username taken
+    const { data: existing } = await db.from('profiles').select('id').eq('username', val).neq('id', currentUserId).maybeSingle();
+    if (existing) { showUploadProgress(false); toast('Username already taken. Please choose another.', 'error'); return; }
+
+    let avatarUrl = currentUserProfile?.avatar_url || null;
+
+    if (pendingSetupAvatarFile) {
+      showUploadProgress(true, 30, 'Uploading picture...');
+      const finalFile = await compressImage(pendingSetupAvatarFile, 800, 0.7);
+      const path = `${currentUserId}/avatar_${Date.now()}`;
+      const { error: upErr } = await db.storage.from(STORAGE_BUCKET).upload(path, finalFile, { upsert: true });
+      if (!upErr) {
+        const { data: pubData } = db.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+        avatarUrl = pubData.publicUrl;
+      }
+    }
+
+    showUploadProgress(true, 80, 'Updating profile...');
+    const { error: updateErr } = await db.from('profiles').update({ username: val, avatar_url: avatarUrl }).eq('id', currentUserId);
+    
+    if (updateErr) throw updateErr;
+
+    if (!currentUserProfile) currentUserProfile = {};
+    currentUserProfile.username = val;
+    if (avatarUrl) currentUserProfile.avatar_url = avatarUrl;
+    
+    document.getElementById('disp-user').textContent = val;
+    renderAvatar();
+    if (typeof loadProfile === 'function') loadProfile();
+    
+    showUploadProgress(false);
+    toast('Profile setup complete!', 'success');
+    closeModal('modal-complete-profile');
+    
+    // Restore close button just in case
+    const closeBtn = document.querySelector('#modal-complete-profile .mclose');
+    if (closeBtn) closeBtn.style.display = 'block';
+
+  } catch (err) {
+    showUploadProgress(false);
+    toast('Error: ' + err.message, 'error');
+  }
 }
 
 async function uploadAvatar(event) {
@@ -4090,4 +4234,667 @@ function initFocusTimerExtras() {
       _focusExtrasInit = true;
     }
   };
-})();
+})();
+// ═══════════════════════════════════════════════════════════════
+//  CHAT FEATURE
+// ═══════════════════════════════════════════════════════════════
+
+// ── Helpers ─────────────────────────────────────────────────────
+
+function chatFormatTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+function chatFormatDate(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return 'Today';
+  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+}
+function chatAvatarHTML(profile, size = 40) {
+  if (profile && profile.avatar_url) {
+    return `<img src="${profile.avatar_url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" />`;
+  }
+  const name = (profile && profile.username) ? profile.username : '?';
+  return name.charAt(0).toUpperCase();
+}
+
+// ── Load Chats Section ──────────────────────────────────────────
+
+async function loadChats() {
+  const list = document.getElementById('chat-list');
+  if (!list) return;
+  list.innerHTML = '<div class="chat-msgs-loading"><i class="fa fa-spinner fa-spin"></i> Loading...</div>';
+
+  try {
+    // Get accepted friends
+    const { data: friendships } = await db.from('friends')
+      .select('*')
+      .or(`user_id.eq.${currentUserId},friend_id.eq.${currentUserId}`)
+      .eq('status', 'accepted');
+
+    if (!friendships || friendships.length === 0) {
+      list.innerHTML = `<div class="chat-list-empty">
+        <i class="fa fa-user-friends"></i>
+        <p>No friends yet.<br/>Add friends to start chatting!</p>
+      </div>`;
+      return;
+    }
+
+    const friendIds = friendships.map(f => f.user_id === currentUserId ? f.friend_id : f.user_id);
+
+    // Get profiles for all friends
+    const { data: profiles } = await db.from('profiles')
+      .select('id, username, avatar_url')
+      .in('id', friendIds);
+
+    chatFriendsCache = profiles || [];
+
+    // Get last message for each friend
+    const convos = await Promise.all(friendIds.map(async (fid) => {
+      const { data: msgs } = await db.from('messages')
+        .select('*')
+        .or(`and(sender_id.eq.${currentUserId},receiver_id.eq.${fid}),and(sender_id.eq.${fid},receiver_id.eq.${currentUserId})`)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      const { count } = await db.from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('receiver_id', currentUserId)
+        .eq('sender_id', fid)
+        .eq('is_read', false);
+
+      return { friendId: fid, lastMsg: msgs?.[0] || null, unread: count || 0 };
+    }));
+
+    // Sort by last message time (most recent first)
+    convos.sort((a, b) => {
+      if (!a.lastMsg && !b.lastMsg) return 0;
+      if (!a.lastMsg) return 1;
+      if (!b.lastMsg) return -1;
+      return new Date(b.lastMsg.created_at) - new Date(a.lastMsg.created_at);
+    });
+
+    // Total unread
+    const totalUnread = convos.reduce((sum, c) => sum + c.unread, 0);
+    updateChatBadge(totalUnread);
+
+    list.innerHTML = '';
+    convos.forEach(convo => {
+      const friend = profiles.find(p => p.id === convo.friendId);
+      if (!friend) return;
+      const item = buildConvoItem(friend, convo.lastMsg, convo.unread);
+      list.appendChild(item);
+    });
+
+    // Subscribe to real-time incoming messages
+    subscribeToChatMessages();
+
+  } catch (err) {
+    console.error('[Chat] loadChats error:', err);
+    list.innerHTML = `<div class="chat-list-empty"><i class="fa fa-exclamation-circle"></i><p>Error loading chats</p></div>`;
+  }
+}
+
+function buildConvoItem(friend, lastMsg, unread) {
+  const div = document.createElement('div');
+  div.className = 'chat-convo-item';
+  div.id = `convo-${friend.id}`;
+  div.onclick = () => openChat(friend);
+
+  let preview = 'No messages yet';
+  if (lastMsg) {
+    if (lastMsg.type === 'timetable') preview = '📅 Shared a timetable';
+    else if (lastMsg.type === 'file') preview = '📁 Shared a file';
+    else if (lastMsg.type === 'plan') preview = '✅ Shared a plan';
+    else preview = lastMsg.content || '';
+    if (preview.length > 40) preview = preview.substring(0, 40) + '...';
+    if (lastMsg.sender_id === currentUserId) preview = 'You: ' + preview;
+  }
+
+  const timeStr = lastMsg ? chatFormatTime(lastMsg.created_at) : '';
+
+  div.innerHTML = `
+    <div class="chat-convo-avatar">
+      ${friend.avatar_url ? `<img src="${friend.avatar_url}" />` : friend.username.charAt(0).toUpperCase()}
+      <span class="chat-online-dot"></span>
+    </div>
+    <div class="chat-convo-body">
+      <div class="chat-convo-name">${friend.username}</div>
+      <div class="chat-convo-preview">${preview}</div>
+    </div>
+    <div class="chat-convo-meta">
+      <span class="chat-convo-time">${timeStr}</span>
+      ${unread > 0 ? `<span class="chat-convo-badge">${unread}</span>` : ''}
+    </div>
+  `;
+  return div;
+}
+
+function updateChatBadge(count) {
+  const badge = document.getElementById('chat-unread-badge');
+  if (!badge) return;
+  if (count > 0) {
+    badge.textContent = count > 99 ? '99+' : count;
+    badge.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function filterChatList(query) {
+  const q = query.toLowerCase();
+  document.querySelectorAll('.chat-convo-item').forEach(el => {
+    const name = el.querySelector('.chat-convo-name')?.textContent.toLowerCase() || '';
+    el.style.display = name.includes(q) ? '' : 'none';
+  });
+}
+
+// ── Open a Chat ─────────────────────────────────────────────────
+
+async function openChat(friend) {
+  activeChatFriendId = friend.id;
+  activeChatFriendProfile = friend;
+
+  // Highlight active convo
+  document.querySelectorAll('.chat-convo-item').forEach(el => el.classList.remove('active'));
+  const convoItem = document.getElementById(`convo-${friend.id}`);
+  if (convoItem) convoItem.classList.add('active');
+
+  // Update header
+  const headerAvatar = document.getElementById('chat-header-avatar');
+  const headerName = document.getElementById('chat-header-name');
+  if (headerAvatar) headerAvatar.innerHTML = friend.avatar_url ? `<img src="${friend.avatar_url}" />` : friend.username.charAt(0).toUpperCase();
+  if (headerName) headerName.textContent = friend.username;
+
+  // Show chat active panel
+  document.getElementById('chat-window-empty').style.display = 'none';
+  document.getElementById('chat-active').style.display = 'flex';
+
+  // Mobile
+  const chatWindow = document.getElementById('chat-window');
+  if (chatWindow) chatWindow.classList.add('mobile-open');
+
+  // Close share bar
+  closeShareBar();
+
+  // Focus input
+  setTimeout(() => {
+    const input = document.getElementById('chat-input');
+    if (input) input.focus();
+  }, 100);
+
+  // Load messages
+  await loadChatMessages(friend.id);
+
+  // Mark as read
+  await markMessagesRead(friend.id);
+}
+
+function closeChatWindow() {
+  activeChatFriendId = null;
+  activeChatFriendProfile = null;
+  document.getElementById('chat-window-empty').style.display = 'flex';
+  document.getElementById('chat-active').style.display = 'none';
+  const chatWindow = document.getElementById('chat-window');
+  if (chatWindow) chatWindow.classList.remove('mobile-open');
+  document.querySelectorAll('.chat-convo-item').forEach(el => el.classList.remove('active'));
+}
+
+// ── Load Messages ───────────────────────────────────────────────
+
+async function loadChatMessages(friendId) {
+  const container = document.getElementById('chat-messages');
+  if (!container) return;
+  container.innerHTML = '<div class="chat-msgs-loading"><i class="fa fa-spinner fa-spin"></i> Loading messages...</div>';
+
+  try {
+    const { data: msgs } = await db.from('messages')
+      .select('*')
+      .or(`and(sender_id.eq.${currentUserId},receiver_id.eq.${friendId}),and(sender_id.eq.${friendId},receiver_id.eq.${currentUserId})`)
+      .order('created_at', { ascending: true });
+
+    chatMessagesCache[friendId] = msgs || [];
+    renderMessages(msgs || [], container);
+    scrollChatToBottom();
+
+  } catch (err) {
+    container.innerHTML = '<div class="chat-msgs-loading">Error loading messages</div>';
+  }
+}
+
+function renderMessages(msgs, container) {
+  container.innerHTML = '';
+  if (msgs.length === 0) {
+    container.innerHTML = `<div class="chat-msgs-loading" style="flex-direction:column;gap:8px;">
+      <i class="fa fa-comments" style="font-size:2rem;color:var(--border)"></i>
+      <span>No messages yet. Say hello! 👋</span>
+    </div>`;
+    return;
+  }
+
+  let lastDate = '';
+  msgs.forEach(msg => {
+    const dateLabel = chatFormatDate(msg.created_at);
+    if (dateLabel !== lastDate) {
+      const sep = document.createElement('div');
+      sep.className = 'chat-date-sep';
+      sep.innerHTML = `<span>${dateLabel}</span>`;
+      container.appendChild(sep);
+      lastDate = dateLabel;
+    }
+    container.appendChild(buildMessageRow(msg));
+  });
+}
+
+function buildMessageRow(msg) {
+  const isSent = msg.sender_id === currentUserId;
+  const row = document.createElement('div');
+  row.className = `msg-row ${isSent ? 'sent' : 'received'}`;
+  row.id = `msg-${msg.id}`;
+
+  const profile = isSent ? currentUserProfile : activeChatFriendProfile;
+  const avatarHTML = profile?.avatar_url
+    ? `<img src="${profile.avatar_url}" />`
+    : (profile?.username || '?').charAt(0).toUpperCase();
+
+  let bubbleContent = '';
+  if (msg.type === 'text' || !msg.type) {
+    bubbleContent = `<div class="msg-bubble">${escapeHtml(msg.content)}</div>`;
+  } else {
+    bubbleContent = buildSharedCard(msg);
+  }
+
+  row.innerHTML = `
+    <div class="msg-avatar-sm">${avatarHTML}</div>
+    <div>
+      ${bubbleContent}
+      <div class="msg-time">${chatFormatTime(msg.created_at)}${isSent ? ' ✓' : ''}</div>
+    </div>
+  `;
+  return row;
+}
+
+function buildSharedCard(msg) {
+  const att = msg.attachment || {};
+  let iconClass = '', icon = '', title = '', meta = '', typeLabel = '', actionLabel = '', onClickFn = '';
+
+  if (msg.type === 'timetable') {
+    iconClass = 'timetable'; icon = 'fa-calendar-alt';
+    title = att.name || 'Timetable';
+    meta = att.slots ? `${att.slots} slots` : '';
+    typeLabel = 'Timetable'; actionLabel = 'View';
+    onClickFn = `viewSharedTimetable(${JSON.stringify(att).replace(/"/g, '&quot;')})`;
+  } else if (msg.type === 'file') {
+    iconClass = 'file'; icon = 'fa-file';
+    title = att.name || 'File';
+    meta = att.size || '';
+    typeLabel = 'File'; actionLabel = 'Open';
+    onClickFn = `openSharedFile('${att.url}')`;
+  } else if (msg.type === 'plan') {
+    iconClass = 'plan'; icon = 'fa-tasks';
+    title = att.title || 'Plan';
+    const planDuration = att.duration || att.type || '';
+    meta = planDuration ? `${planDuration} plan` : '';
+    typeLabel = 'Plan'; actionLabel = 'View';
+    onClickFn = `viewSharedPlan(${JSON.stringify(att).replace(/"/g, '&quot;')})`;
+  }
+
+  return `<div class="shared-card">
+    <div class="shared-card-header">
+      <div class="shared-card-icon ${iconClass}"><i class="fa ${icon}"></i></div>
+      <div>
+        <div class="shared-card-title">${escapeHtml(title)}</div>
+        <div class="shared-card-meta">${escapeHtml(meta)}</div>
+      </div>
+    </div>
+    <div class="shared-card-footer">
+      <span class="shared-card-type-tag">${typeLabel}</span>
+      <button class="shared-card-action" onclick="${onClickFn}" type="button">${actionLabel} →</button>
+    </div>
+  </div>`;
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function scrollChatToBottom() {
+  const container = document.getElementById('chat-messages');
+  if (container) setTimeout(() => { container.scrollTop = container.scrollHeight; }, 50);
+}
+
+// ── Send Message ────────────────────────────────────────────────
+
+async function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  if (!input || !activeChatFriendId) return;
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  await sendRawMessage('text', text, null);
+}
+
+async function sendRawMessage(type, content, attachment) {
+  if (!activeChatFriendId) return;
+
+  const msg = {
+    sender_id: currentUserId,
+    receiver_id: activeChatFriendId,
+    type,
+    content: content || null,
+    attachment: attachment || null,
+    is_read: false
+  };
+
+  const { data, error } = await db.from('messages').insert(msg).select().single();
+  if (error) { toast('Failed to send message: ' + error.message, 'error'); return; }
+
+  // Append to UI immediately
+  const container = document.getElementById('chat-messages');
+  if (container) {
+    const emptyDiv = container.querySelector('.chat-msgs-loading');
+    if (emptyDiv) container.innerHTML = '';
+    container.appendChild(buildMessageRow(data));
+    scrollChatToBottom();
+  }
+
+  // Update conversation preview
+  refreshConvoPreview(activeChatFriendId, data);
+}
+
+function refreshConvoPreview(friendId, msg) {
+  const item = document.getElementById(`convo-${friendId}`);
+  if (!item) {
+    loadChats();
+    return;
+  }
+  const preview = item.querySelector('.chat-convo-preview');
+  const time = item.querySelector('.chat-convo-time');
+  const badge = item.querySelector('.chat-convo-badge');
+
+  let previewText = '';
+  if (msg.type === 'timetable') previewText = 'You: 📅 Shared a timetable';
+  else if (msg.type === 'file') previewText = 'You: 📁 Shared a file';
+  else if (msg.type === 'plan') previewText = 'You: ✅ Shared a plan';
+  else previewText = 'You: ' + (msg.content || '');
+  if (previewText.length > 40) previewText = previewText.substring(0, 40) + '...';
+
+  if (preview) preview.textContent = previewText;
+  if (time) time.textContent = chatFormatTime(msg.created_at);
+  if (badge) badge.remove();
+
+  // Move to top of list
+  const list = document.getElementById('chat-list');
+  if (list && item.parentNode === list) list.prepend(item);
+}
+
+// ── Mark Read ───────────────────────────────────────────────────
+
+async function markMessagesRead(friendId) {
+  await db.from('messages')
+    .update({ is_read: true })
+    .eq('receiver_id', currentUserId)
+    .eq('sender_id', friendId)
+    .eq('is_read', false);
+
+  // Clear badge on convo item
+  const badge = document.querySelector(`#convo-${friendId} .chat-convo-badge`);
+  if (badge) badge.remove();
+
+  // Recalculate total badge
+  const allBadges = document.querySelectorAll('.chat-convo-badge');
+  let total = 0;
+  allBadges.forEach(b => total += parseInt(b.textContent) || 0);
+  updateChatBadge(total);
+}
+
+// ── Realtime ─────────────────────────────────────────────────────
+
+function subscribeToChatMessages() {
+  if (chatRealtimeChannel) {
+    db.removeChannel(chatRealtimeChannel);
+  }
+
+  chatRealtimeChannel = db.channel('chat-messages-' + currentUserId)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'messages',
+      filter: `receiver_id=eq.${currentUserId}`
+    }, (payload) => {
+      const msg = payload.new;
+      handleIncomingMessage(msg);
+    })
+    .subscribe();
+}
+
+function handleIncomingMessage(msg) {
+  const fromFriend = msg.sender_id;
+
+  // If this chat is currently open, append message directly
+  if (activeChatFriendId === fromFriend) {
+    const container = document.getElementById('chat-messages');
+    if (container) {
+      const emptyDiv = container.querySelector('.chat-msgs-loading');
+      if (emptyDiv) container.innerHTML = '';
+      container.appendChild(buildMessageRow(msg));
+      scrollChatToBottom();
+    }
+    // Mark as read immediately since chat is open
+    markMessagesRead(fromFriend);
+  } else {
+    // Update badge on the convo item
+    let convoItem = document.getElementById(`convo-${fromFriend}`);
+    if (convoItem) {
+      let badge = convoItem.querySelector('.chat-convo-badge');
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'chat-convo-badge';
+        badge.textContent = '1';
+        convoItem.querySelector('.chat-convo-meta').appendChild(badge);
+      } else {
+        badge.textContent = (parseInt(badge.textContent) || 0) + 1;
+      }
+    } else {
+      // New friend texted us - reload chat list
+      loadChats();
+    }
+
+    // Play subtle sound notification
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine'; osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.start(); osc.stop(ctx.currentTime + 0.3);
+    } catch(e) {}
+
+    // Update total badge
+    const allBadges = document.querySelectorAll('.chat-convo-badge');
+    let total = 0;
+    allBadges.forEach(b => total += parseInt(b.textContent) || 0);
+    updateChatBadge(total);
+  }
+
+  // Update preview
+  if (document.getElementById(`convo-${fromFriend}`)) {
+    const item = document.getElementById(`convo-${fromFriend}`);
+    const preview = item.querySelector('.chat-convo-preview');
+    const time = item.querySelector('.chat-convo-time');
+    let previewText = msg.type === 'timetable' ? '📅 Shared a timetable' :
+                      msg.type === 'file' ? '📁 Shared a file' :
+                      msg.type === 'plan' ? '✅ Shared a plan' : (msg.content || '');
+    if (preview) preview.textContent = previewText;
+    if (time) time.textContent = chatFormatTime(msg.created_at);
+    const list = document.getElementById('chat-list');
+    if (list && item.parentNode === list) list.prepend(item);
+  }
+}
+
+// ── Share Pickers ────────────────────────────────────────────────
+
+async function openSharePicker(type) {
+  if (!activeChatFriendId) return;
+
+  if (activeSharePickerType === type) {
+    closeShareBar();
+    return;
+  }
+  activeSharePickerType = type;
+
+  const bar = document.getElementById('chat-share-bar');
+  const items = document.getElementById('share-bar-items');
+  const title = document.querySelector('.share-bar-title');
+  if (!bar || !items) return;
+
+  items.innerHTML = '<div class="chat-msgs-loading"><i class="fa fa-spinner fa-spin"></i></div>';
+  bar.style.display = 'block';
+
+  try {
+    let data = [];
+    if (type === 'timetable') {
+      if (title) title.textContent = '📅 Share a Timetable:';
+      const { data: tts } = await db.from('timetables').select('*').eq('user_id', currentUserId);
+      data = tts || [];
+      items.innerHTML = data.length === 0
+        ? '<div style="color:var(--text3);font-size:.85rem;padding:8px;">No timetables created yet.</div>'
+        : '';
+      data.forEach(tt => {
+        const el = createShareBarItem('fa-calendar-alt', 'timetable', tt.tt_type || 'Untitled', '', () => {
+          shareItem('timetable', { id: tt.id, name: tt.tt_type, slots: (tt.rows || []).length, data: tt });
+        });
+        items.appendChild(el);
+      });
+
+    } else if (type === 'file') {
+      if (title) title.textContent = '📁 Share a File:';
+      const { data: files } = await db.from('files').select('*').eq('user_id', currentUserId);
+      data = files || [];
+      items.innerHTML = data.length === 0
+        ? '<div style="color:var(--text3);font-size:.85rem;padding:8px;">No files uploaded yet.</div>'
+        : '';
+      data.forEach(file => {
+        const sizeStr = file.size ? formatBytes(file.size) : '';
+        const el = createShareBarItem('fa-file', 'file', file.name || 'Untitled', sizeStr, () => {
+          shareItem('file', { id: file.id, name: file.name, url: file.url, size: sizeStr, file_type: file.type });
+        });
+        items.appendChild(el);
+      });
+
+    } else if (type === 'plan') {
+      if (title) title.textContent = '✅ Share a Plan:';
+      const { data: plans } = await db.from('plans').select('*').eq('user_id', currentUserId);
+      data = plans || [];
+      items.innerHTML = data.length === 0
+        ? '<div style="color:var(--text3);font-size:.85rem;padding:8px;">No plans created yet.</div>'
+        : '';
+      data.forEach(plan => {
+        const el = createShareBarItem('fa-tasks', 'plan', plan.title || 'Untitled', plan.duration || '', () => {
+          shareItem('plan', { id: plan.id, title: plan.title, duration: plan.duration, type: plan.duration, activities: (plan.activities || []).length, data: plan });
+        });
+        items.appendChild(el);
+      });
+    }
+
+  } catch(err) {
+    items.innerHTML = '<div style="color:var(--red);font-size:.85rem;padding:8px;">Error loading items.</div>';
+  }
+}
+
+function createShareBarItem(icon, type, name, meta, onClick) {
+  const el = document.createElement('div');
+  el.className = 'share-bar-item';
+  const colorMap = { 'fa-calendar-alt': 'timetable', 'fa-file': 'file', 'fa-tasks': 'plan' };
+  const iconClass = colorMap[icon] || '';
+  el.innerHTML = `
+    <div class="share-bar-item-icon ${iconClass}"><i class="fa ${icon}"></i></div>
+    <div>
+      <div class="share-bar-item-name">${escapeHtml(name)}</div>
+      ${meta ? `<div class="share-bar-item-meta">${escapeHtml(meta)}</div>` : ''}
+    </div>
+    <i class="fa fa-share-square" style="color:var(--accent);font-size:0.85rem;margin-left:auto"></i>
+  `;
+  el.onclick = onClick;
+  return el;
+}
+
+async function shareItem(type, attachment) {
+  closeShareBar();
+  await sendRawMessage(type, null, attachment);
+  toast(`${type.charAt(0).toUpperCase() + type.slice(1)} shared!`, 'success');
+}
+
+function closeShareBar() {
+  activeSharePickerType = null;
+  const bar = document.getElementById('chat-share-bar');
+  if (bar) bar.style.display = 'none';
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// ── View Shared Items ────────────────────────────────────────────
+
+function viewSharedTimetable(att) {
+  const tt = att.data || att;
+  if (!tt) return;
+  document.getElementById('ttv-heading').innerHTML = `<i class="fa fa-calendar-alt" style="color:var(--accent)"></i> Shared: ${escapeHtml(tt.tt_type || tt.name || 'Timetable')}`;
+  document.getElementById('ttv-body').innerHTML = `<div class="tt-table-wrap">
+    <table class="tt-table">
+      <thead><tr>${(tt.columns || []).map(c=>`<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
+      <tbody>${(tt.rows||[]).map(row=>`<tr>${(row || []).map(c=>`<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table></div>`;
+  openModal('modal-tt-view');
+}
+
+function openSharedFile(url) {
+  if (!url) { toast('File URL unavailable', 'error'); return; }
+  window.open(url, '_blank');
+}
+
+function viewSharedPlan(att) {
+  const plan = att.data || att;
+  if (!plan) return;
+  
+  const activities = plan.activities || [];
+  const total = activities.length;
+  const completed = activities.filter(a => a.status === 'done').length;
+  const pct = total ? Math.round((completed / total) * 100) : 0;
+  
+  document.getElementById('planv-heading').innerHTML = `<i class="fa fa-tasks" style="color:var(--accent)"></i> Shared Plan: ${escapeHtml(plan.title || 'Plan')}`;
+  
+  document.getElementById('planv-body').innerHTML = `
+    <div style="margin-bottom:15px">
+      <span class="plan-duration-pill pill-${plan.duration || 'daily'}">${getDurationLabel(plan.duration || 'daily')}</span>
+      <span style="font-size:.85rem;color:var(--text2);margin-left:10px">${plan.start_date ? fmtDate(plan.start_date) : ''} – ${plan.end_date ? fmtDate(plan.end_date) : ''}</span>
+    </div>
+    <div class="plan-progress-bar-wrap" style="margin-bottom:20px">
+      <div class="plan-progress-bar"><div class="plan-progress-fill" style="width:${pct}%"></div></div>
+      <div class="plan-progress-label"><span>${completed} of ${total} completed</span><strong>${pct}% Done</strong></div>
+    </div>
+    <div style="max-height:300px;overflow-y:auto;margin-bottom:20px;padding-right:5px">
+      ${activities.map((a, i) => `
+        <div class="activity-row" style="padding:10px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+          <div class="activity-text" style="color:var(--text1)">${escapeHtml(a.text)}</div>
+          <div style="font-size:.85rem;color:${a.status === 'done' ? 'var(--green)' : 'var(--text3)'}">
+            ${a.status === 'done' ? '<i class="fa fa-check-circle"></i> Completed' : '<i class="fa fa-circle"></i> Pending'}
+          </div>
+        </div>
+      `)
+      .join('')}
+    </div>
+  `;
+  openModal('modal-plan-view');
+}
