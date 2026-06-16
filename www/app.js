@@ -4535,9 +4535,9 @@ function buildMessageRow(msg) {
 
   let bubbleContent = '';
   if (msg.type === 'text' || !msg.type) {
-    bubbleContent = `<div class="msg-bubble">${escapeHtml(msg.content)}</div>`;
+    bubbleContent = `<div class="msg-bubble" onclick="toggleMobileActions(event, '${msg.id}')">${escapeHtml(msg.content)}</div>`;
   } else {
-    bubbleContent = buildSharedCard(msg);
+    bubbleContent = `<div onclick="toggleMobileActions(event, '${msg.id}')">${buildSharedCard(msg)}</div>`;
   }
 
   let reactionsHtml = '';
@@ -4559,7 +4559,26 @@ function buildMessageRow(msg) {
     <div class="msg-content-wrapper">
       <div class="msg-bubble-row">
         ${bubbleContent}
-        <button class="msg-reaction-btn" onclick="showReactionPicker('${msg.id}', this)" type="button" title="React"><i class="fa fa-smile"></i></button>
+        <div class="msg-actions-bar">
+          <div class="quick-emojis">
+            <button class="quick-emoji-btn" onclick="toggleReaction('${msg.id}', '🔥')" type="button">🔥</button>
+            <button class="quick-emoji-btn" onclick="toggleReaction('${msg.id}', '❤️')" type="button">❤️</button>
+            <button class="quick-emoji-btn" onclick="toggleReaction('${msg.id}', '🎉')" type="button">🎉</button>
+          </div>
+          <div class="actions-separator"></div>
+          <div class="action-btn-wrap">
+            <button class="action-bar-btn emoji-trigger" onclick="showReactionPicker('${msg.id}', this)" type="button">
+              <i class="fa-regular fa-smile"></i>
+            </button>
+            <div class="action-tooltip">Add Reaction</div>
+          </div>
+          <button class="action-bar-btn" onclick="copyMessageText('${msg.id}')" type="button" title="Copy Text">
+            <i class="fa-regular fa-copy"></i>
+          </button>
+          <button class="action-bar-btn" onclick="showMoreMessageActions('${msg.id}', this)" type="button" title="More">
+            <i class="fa fa-ellipsis-h"></i>
+          </button>
+        </div>
       </div>
       ${reactionsHtml}
       <div class="msg-time">${chatFormatTime(msg.created_at)}${isSent ? ' ✓' : ''}</div>
@@ -4717,6 +4736,12 @@ function subscribeToChatMessages() {
       schema: 'public',
       table: 'messages'
     }, (payload) => {
+      if (payload.eventType === 'DELETE') {
+        if (payload.old && payload.old.id) {
+          handleDeletedMessage(payload.old.id);
+        }
+        return;
+      }
       const msg = payload.new;
       if (!msg) return;
       if (msg.receiver_id === currentUserId || msg.sender_id === currentUserId) {
@@ -5011,9 +5036,22 @@ window.closeReactionPicker = function() {
 document.addEventListener('click', (e) => {
   if (activeReactionPickerMsgId) {
     const picker = document.getElementById('active-reaction-picker');
-    if (picker && !picker.contains(e.target) && !e.target.closest('.msg-reaction-btn')) {
+    if (picker && !picker.contains(e.target) && !e.target.closest('.emoji-trigger')) {
       closeReactionPicker();
     }
+  }
+  
+  // Close active more menu
+  const moreMenu = document.getElementById('active-more-menu');
+  if (moreMenu && !moreMenu.contains(e.target) && !e.target.closest('.action-bar-btn')) {
+    closeMoreMessageActions();
+  }
+
+  // Close any active mobile action bars
+  if (!e.target.closest('.msg-bubble') && !e.target.closest('.msg-actions-bar')) {
+    document.querySelectorAll('.msg-actions-bar.active').forEach(bar => {
+      bar.classList.remove('active');
+    });
   }
 });
 
@@ -5048,5 +5086,118 @@ window.toggleReaction = async function(msgId, emoji) {
   } catch (err) {
     console.error('Error toggling reaction:', err);
     toast('Could not update reaction', 'error');
+  }
+};
+
+// ── Additional Message Actions & Mobile Utilities ─────────────────
+
+function handleDeletedMessage(msgId) {
+  const row = document.getElementById(`msg-${msgId}`);
+  if (row) {
+    row.remove();
+  }
+}
+
+window.toggleMobileActions = function(event, msgId) {
+  // If clicked a button or link inside the bubble (like View Plan), ignore it
+  if (event.target.closest('button') || event.target.closest('a')) {
+    return;
+  }
+  event.stopPropagation();
+  
+  const row = document.getElementById(`msg-${msgId}`);
+  if (!row) return;
+  
+  const bar = row.querySelector('.msg-actions-bar');
+  if (!bar) return;
+  
+  // Close all other active action bars
+  document.querySelectorAll('.msg-actions-bar.active').forEach(b => {
+    if (b !== bar) b.classList.remove('active');
+  });
+  
+  bar.classList.toggle('active');
+};
+
+window.copyMessageText = async function(msgId) {
+  try {
+    const row = document.getElementById(`msg-${msgId}`);
+    if (row) {
+      const bubble = row.querySelector('.msg-bubble');
+      if (bubble) {
+        await navigator.clipboard.writeText(bubble.textContent);
+        toast('Message copied to clipboard');
+      }
+    }
+  } catch (err) {
+    console.error('Failed to copy text:', err);
+  }
+};
+
+window.showMoreMessageActions = function(msgId, btnElement) {
+  closeMoreMessageActions();
+  
+  const picker = document.createElement('div');
+  picker.className = 'msg-more-menu';
+  picker.id = 'active-more-menu';
+  
+  const row = document.getElementById(`msg-${msgId}`);
+  if (!row) return;
+  const isSent = row.classList.contains('sent');
+  
+  const options = [
+    {
+      text: 'Copy Text',
+      icon: 'fa-copy',
+      action: () => copyMessageText(msgId)
+    }
+  ];
+  
+  if (isSent) {
+    options.push({
+      text: 'Delete Message',
+      icon: 'fa-trash-can text-danger',
+      action: () => deleteMessage(msgId)
+    });
+  }
+  
+  options.forEach(opt => {
+    const item = document.createElement('div');
+    item.className = 'msg-more-item';
+    item.innerHTML = `<i class="fa-regular ${opt.icon}"></i> <span>${opt.text}</span>`;
+    item.onclick = (e) => {
+      e.stopPropagation();
+      opt.action();
+      closeMoreMessageActions();
+    };
+    picker.appendChild(item);
+  });
+  
+  const bubbleRow = row.querySelector('.msg-bubble-row');
+  if (bubbleRow) {
+    bubbleRow.appendChild(picker);
+  }
+};
+
+window.closeMoreMessageActions = function() {
+  const existing = document.getElementById('active-more-menu');
+  if (existing) {
+    existing.remove();
+  }
+};
+
+window.deleteMessage = async function(msgId) {
+  try {
+    const { error } = await db.from('messages').delete().eq('id', msgId);
+    if (error) throw error;
+    
+    const row = document.getElementById(`msg-${msgId}`);
+    if (row) {
+      row.remove();
+      toast('Message deleted');
+    }
+  } catch (err) {
+    console.error('Error deleting message:', err);
+    toast('Could not delete message', 'error');
   }
 };
