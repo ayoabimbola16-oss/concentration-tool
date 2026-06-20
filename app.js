@@ -643,22 +643,98 @@ async function login() {
 
 async function signInWithGoogle() {
   try {
-    // Build the redirect URL from the current page location
+    // Build the redirect URL from the current page location (no hash/query)
     const currentUrl = window.location.href.split('#')[0].split('?')[0];
-    
-    // Warn if the user is on a device that can't reach localhost
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-      console.warn('Google Sign-In: Redirecting to', currentUrl, '— if on another device, use the host machine IP instead of localhost.');
-    }
 
+    showAuthMsg('Opening Google sign-in…', 'info');
+
+    // ── Get the OAuth URL without navigating away ──────────────
     const { data, error } = await db.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: currentUrl
+        redirectTo: currentUrl,
+        skipBrowserRedirect: true   // ← don't navigate, just give us the URL
       }
     });
     if (error) throw error;
+
+    if (!data?.url) {
+      showAuthMsg('Could not start Google sign-in. Please try again.');
+      return;
+    }
+
+    // ── Open the OAuth URL in a popup window ──────────────────
+    const w = 500, h = 620;
+    const left = Math.max(0, (screen.width - w) / 2);
+    const top  = Math.max(0, (screen.height - h) / 2);
+    const popup = window.open(
+      data.url,
+      'google-auth',
+      `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes`
+    );
+
+    // Fallback: if popup was blocked, fall back to full redirect
+    if (!popup || popup.closed) {
+      showAuthMsg('Popup blocked — redirecting…', 'info');
+      window.location.href = data.url;
+      return;
+    }
+
+    // ── Poll the popup until it redirects back with tokens ────
+    const pollTimer = setInterval(async () => {
+      try {
+        // Popup was closed manually by the user
+        if (!popup || popup.closed) {
+          clearInterval(pollTimer);
+          closeAuthMsg();
+          // Check if maybe the session was set anyway
+          const { data: { session } } = await db.auth.getSession();
+          if (!session) {
+            showAuthMsg('Sign-in was cancelled.');
+          }
+          return;
+        }
+
+        // Try to read the popup's URL — throws while on Google's domain
+        const popupUrl = popup.location.href;
+
+        // Check if the popup redirected back to our origin with tokens
+        if (popupUrl.startsWith(currentUrl) || popupUrl.startsWith(window.location.origin)) {
+          const hashFragment = popup.location.hash;
+
+          // Only process if we actually have tokens in the hash
+          if (hashFragment && hashFragment.includes('access_token')) {
+            clearInterval(pollTimer);
+            popup.close();
+
+            // Parse tokens from the hash fragment
+            const params = new URLSearchParams(hashFragment.substring(1));
+            const access_token  = params.get('access_token');
+            const refresh_token = params.get('refresh_token');
+
+            if (access_token && refresh_token) {
+              // Set the session on our main-window Supabase client
+              const { error: sessErr } = await db.auth.setSession({
+                access_token,
+                refresh_token
+              });
+              if (sessErr) {
+                console.error('[Google Auth] setSession error:', sessErr);
+                showAuthMsg('Error completing sign-in: ' + sessErr.message);
+              }
+              // onAuthStateChange will handle the rest (hide auth screen, init app)
+            } else {
+              showAuthMsg('Sign-in failed — missing tokens. Please try again.');
+            }
+          }
+        }
+      } catch (e) {
+        // Cross-origin error — popup is still on Google/Supabase domain, keep polling
+      }
+    }, 400);
+
   } catch (err) {
+    console.error('[Google Auth]', err);
     showAuthMsg('Error signing in with Google: ' + err.message);
   }
 }
