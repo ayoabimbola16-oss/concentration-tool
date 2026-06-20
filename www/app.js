@@ -989,6 +989,7 @@ function showSection(name) {
     plans:        loadPlans,
     profile:      loadProfile,
     chats:        loadChats,
+    addfriends:   loadFriendsReal,
     admin:        () => { if (window.loadAdminPanel) window.loadAdminPanel(); },
     focustimer:   loadFocusStats,
     social:       () => { if(window.loadFriends) loadFriends(); if(window.loadSharedWithMe) loadSharedWithMe(); },
@@ -3785,8 +3786,9 @@ async function updateActivePresenceCounter() {
 async function loadFriendsReal() {
   const container = document.getElementById('friends-list');
   const profileContainer = document.getElementById('profile-friends-list');
+  const tabContainer = document.getElementById('tab-friends-list');
   if (!currentUserId) return;
-  if (!container && !profileContainer) return;
+  if (!container && !profileContainer && !tabContainer) return;
 
   try {
     // 1. Fetch friend relations
@@ -3799,6 +3801,7 @@ async function loadFriendsReal() {
       const errHtml = '<div style="color:var(--text3);font-size:.8rem">Error loading friends</div>';
       if (container) container.innerHTML = errHtml;
       if (profileContainer) profileContainer.innerHTML = errHtml;
+      if (tabContainer) tabContainer.innerHTML = errHtml;
       return;
     }
 
@@ -3842,9 +3845,10 @@ async function loadFriendsReal() {
 
     // 3. Render Accepted Friends
     if (acceptedFriendsIds.length === 0) {
-      html += '<div style="color:var(--text3);text-align:center;padding:20px;font-size:0.85rem">No friends added yet. Tap <strong>Find Friends</strong> on your profile page to search users!</div>';
+      html += '<div style="color:var(--text3);text-align:center;padding:20px;font-size:0.85rem">No friends added yet. Search users below to send friend requests!</div>';
       if (container) container.innerHTML = html;
       if (profileContainer) profileContainer.innerHTML = html;
+      if (tabContainer) tabContainer.innerHTML = html;
       return;
     }
 
@@ -3858,6 +3862,7 @@ async function loadFriendsReal() {
       const errHtml = html + '<div style="color:var(--text3);font-size:.8rem">Error fetching friend profiles</div>';
       if (container) container.innerHTML = errHtml;
       if (profileContainer) profileContainer.innerHTML = errHtml;
+      if (tabContainer) tabContainer.innerHTML = errHtml;
       return;
     }
 
@@ -3907,6 +3912,7 @@ async function loadFriendsReal() {
 
     if (container) container.innerHTML = html + listHtml;
     if (profileContainer) profileContainer.innerHTML = html + listHtml;
+    if (tabContainer) tabContainer.innerHTML = html + listHtml;
   } catch (err) {
     console.warn('loadFriendsReal error:', err);
   }
@@ -4075,6 +4081,115 @@ async function searchUsersReal() {
   }
 }
 
+// Search users in the Add Friends tab (real-time debounced)
+let tabSearchTimeout = null;
+window.searchTabUsersDebounced = function() {
+  if (tabSearchTimeout) clearTimeout(tabSearchTimeout);
+  tabSearchTimeout = setTimeout(searchTabUsersReal, 300);
+};
+
+async function searchTabUsersReal() {
+  const query = document.getElementById('tab-friend-search-input').value.trim();
+  const resultsContainer = document.getElementById('tab-friend-search-results');
+  if (!resultsContainer) return;
+
+  if (query.length < 2) {
+    resultsContainer.innerHTML = '<div style="color:var(--text3);font-size:.85rem;text-align:center;padding:20px">Type at least 2 characters to search...</div>';
+    return;
+  }
+
+  resultsContainer.innerHTML = '<div style="color:var(--text3);font-size:.85rem;text-align:center;padding:20px">Searching...</div>';
+
+  try {
+    // 1. Fetch matching profiles (excluding current user)
+    const { data: matchedUsers, error } = await db
+      .from('profiles')
+      .select('id, username, streak_public')
+      .neq('id', currentUserId)
+      .ilike('username', `%${query}%`)
+      .limit(10);
+
+    if (error) {
+      resultsContainer.innerHTML = `<div style="color:var(--text3);font-size:.85rem;text-align:center;padding:20px">Search failed: ${error.message}</div>`;
+      return;
+    }
+
+    if (!matchedUsers || matchedUsers.length === 0) {
+      resultsContainer.innerHTML = '<div style="color:var(--text3);font-size:.85rem;text-align:center;padding:20px">No users found matching that name</div>';
+      return;
+    }
+
+    // 2. Fetch active status (presence) of matching users
+    const targetUserIds = matchedUsers.map(u => u.id);
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data: presences } = await db
+      .from('user_presence')
+      .select('user_id, last_seen')
+      .in('user_id', targetUserIds)
+      .gte('last_seen', fiveMinutesAgo);
+
+    const activeMap = {};
+    if (presences) {
+      presences.forEach(p => { activeMap[p.user_id] = true; });
+    }
+
+    // 3. Fetch existing relations to show correct action buttons
+    const { data: relations } = await db
+      .from('friends')
+      .select('*')
+      .or(`user_id.eq.${currentUserId},friend_id.eq.${currentUserId}`)
+      .in('user_id', targetUserIds.concat(currentUserId))
+      .in('friend_id', targetUserIds.concat(currentUserId));
+
+    const relationMap = {};
+    if (relations) {
+      relations.forEach(rel => {
+        const otherId = rel.user_id === currentUserId ? rel.friend_id : rel.user_id;
+        relationMap[otherId] = rel;
+      });
+    }
+
+    // 4. Render matching user cards with active status
+    resultsContainer.innerHTML = matchedUsers.map(u => {
+      const rel = relationMap[u.id];
+      const isOnline = !!activeMap[u.id];
+      let actionBtn = '';
+      if (!rel) {
+        actionBtn = `<button onclick="sendFriendReq('${u.id}')" class="btn-save" style="padding:6px 12px;font-size:0.75rem"><i class="fa fa-user-plus"></i> Add</button>`;
+      } else if (rel.status === 'accepted') {
+        actionBtn = `<span style="color:var(--green);font-size:0.75rem;font-weight:700"><i class="fa fa-check"></i> Friends</span>`;
+      } else if (rel.status === 'pending') {
+        if (rel.user_id === currentUserId) {
+          actionBtn = `<span style="color:var(--accent);font-size:0.75rem;font-weight:700">Requested</span>`;
+        } else {
+          actionBtn = `<button onclick="acceptFriendReq('${rel.id}')" class="btn-save" style="padding:6px 12px;font-size:0.75rem">Accept</button>`;
+        }
+      }
+
+      const initial = (u.username || '?').charAt(0).toUpperCase();
+
+      return `
+        <div class="fs-result-item" style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.02); padding:10px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.04)">
+          <div class="fs-user-details" style="display:flex; align-items:center; gap:10px; cursor:pointer" onclick="showUserProfile('${u.id}')">
+            <div class="fs-avatar" style="width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg,#4a90e2,#9b59b6); display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff">${initial}</div>
+            <div>
+              <div class="fs-name" style="font-size:0.85rem; font-weight:600; color:var(--text)">${escHtml(u.username)}</div>
+              <div class="friend-status ${isOnline ? 'focusing' : ''}">
+                <span class="sdot"></span>
+                ${isOnline ? 'Active' : 'Offline'}
+              </div>
+            </div>
+          </div>
+          <div class="fs-action-wrapper" id="tab-action-wrap-${u.id}">
+            ${actionBtn}
+          </div>
+        </div>`;
+    }).join('');
+  } catch (err) {
+    resultsContainer.innerHTML = `<div style="color:var(--text3);font-size:.85rem;text-align:center;padding:20px">Error searching: ${err.message}</div>`;
+  }
+}
+
 // Send friend request from search results or user profile modal
 window.sendFriendReq = async function(targetUserId) {
   if (!targetUserId || !currentUserId) return;
@@ -4093,6 +4208,10 @@ window.sendFriendReq = async function(targetUserId) {
       const wrap = document.getElementById(`action-wrap-${targetUserId}`);
       if (wrap) {
         wrap.innerHTML = `<span style="color:var(--accent);font-size:0.75rem;font-weight:700">Requested</span>`;
+      }
+      const tabWrap = document.getElementById(`tab-action-wrap-${targetUserId}`);
+      if (tabWrap) {
+        tabWrap.innerHTML = `<span style="color:var(--accent);font-size:0.75rem;font-weight:700">Requested</span>`;
       }
       // Update profile modal button if open
       const pModalBtn = document.getElementById('up-add-friend-btn');

@@ -140,6 +140,10 @@
         <span class="chat-unread-badge" id="chat-unread-badge" style="display:none">0</span>
       </button>
 
+      <button class="nav-btn" id="nav-addfriends" onclick="showSection('addfriends')" type="button">
+        <i class="fa fa-user-plus"></i><span>Add Friends</span>
+      </button>
+
       <button class="nav-btn" id="nav-profile" onclick="showSection('profile')" type="button">
         <i class="fa fa-user"></i><span>My Profile</span>
       </button>
@@ -340,6 +344,37 @@
           <div class="social-body">
             <h3 class="social-title"><i class="fa fa-users"></i> PlanTrack Focus Room</h3>
             <div class="friends-list" id="friends-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── ADD FRIENDS ─── -->
+      <section id="sec-addfriends" class="sec">
+        <div class="sec-header">
+          <div class="sec-title-block">
+            <h1><i class="fa fa-user-plus"></i> Add Friends</h1>
+            <p>Search for other users, send friend requests, and manage your network.</p>
+          </div>
+        </div>
+
+        <!-- Search Card -->
+        <div style="background: rgba(255,255,255,0.03); border-radius: 12px; padding: 20px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 25px;">
+          <h3 style="margin-bottom: 12px; font-size: 1rem; color: var(--accent);"><i class="fa fa-search"></i> Search Users</h3>
+          <div style="display:flex; gap:8px">
+            <input type="text" id="tab-friend-search-input" placeholder="Search by username..." style="flex:1; padding: 12px 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); font-size: 0.9rem;" oninput="searchTabUsersDebounced()"/>
+          </div>
+          <div id="tab-friend-search-results" style="margin-top:14px; display:flex; flex-direction:column; gap:10px; max-height:300px; overflow-y:auto">
+            <div style="color:var(--text3); font-size:.85rem; text-align:center; padding:20px">Type a username to search</div>
+          </div>
+        </div>
+
+        <!-- Friends List Section -->
+        <div style="background: rgba(255,255,255,0.03); border-radius: 12px; padding: 20px; border: 1px solid rgba(255,255,255,0.05);">
+          <h3 style="margin-bottom: 15px; color: var(--accent); display: flex; align-items: center; gap: 8px;">
+            <i class="fa fa-users"></i> Friends &amp; Requests
+          </h3>
+          <div class="friends-list" id="tab-friends-list" style="max-height: 500px; overflow-y: auto;">
+            <div style="color:var(--text3); font-size:.85rem; text-align:center; padding:20px;">Loading friends...</div>
           </div>
         </div>
       </section>
