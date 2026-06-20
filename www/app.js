@@ -643,16 +643,18 @@ async function login() {
 
 async function signInWithGoogle() {
   try {
-    // Build the redirect URL from the current page location (no hash/query)
+    // Build the redirect URL. On native Capacitor we use custom deep link scheme.
+    const isCapacitor = window.Capacitor && window.Capacitor.isNative;
     const currentUrl = window.location.href.split('#')[0].split('?')[0];
+    const redirectTo = isCapacitor ? 'com.lenovo.plantrack://login-callback' : currentUrl;
 
-    showAuthMsg('Opening Google sign-in…', 'info');
+    showAuthMsg(isCapacitor ? 'Redirecting to Google…' : 'Opening Google sign-in…', 'info');
 
     // ── Get the OAuth URL without navigating away ──────────────
     const { data, error } = await db.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: currentUrl,
+        redirectTo: redirectTo,
         skipBrowserRedirect: true   // ← don't navigate, just give us the URL
       }
     });
@@ -663,7 +665,17 @@ async function signInWithGoogle() {
       return;
     }
 
-    // ── Open the OAuth URL in a popup window ──────────────────
+    // ── Capacitor Native: Open in external Chrome/System Browser ──
+    if (isCapacitor) {
+      if (window.Capacitor.Plugins && window.Capacitor.Plugins.Browser) {
+        await window.Capacitor.Plugins.Browser.open({ url: data.url, windowName: '_system' });
+      } else {
+        window.open(data.url, '_system');
+      }
+      return;
+    }
+
+    // ── Web Popup Flow ──
     const w = 500, h = 620;
     const left = Math.max(0, (screen.width - w) / 2);
     const top  = Math.max(0, (screen.height - h) / 2);
@@ -2662,6 +2674,41 @@ window.startSubscription = function() {
       document.getElementById('auth-screen').style.display = 'flex';
     }
   });
+
+  // Handle Capacitor deep links (when the app is opened via a custom URL scheme)
+  if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+    const { App } = window.Capacitor.Plugins;
+    App.addListener('appUrlOpen', async (data) => {
+      console.log('[Capacitor] App opened with URL:', data.url);
+      try {
+        if (data.url) {
+          const urlObj = new URL(data.url);
+          const hashFragment = urlObj.hash;
+          if (hashFragment && hashFragment.includes('access_token')) {
+            const params = new URLSearchParams(hashFragment.substring(1));
+            const access_token = params.get('access_token');
+            const refresh_token = params.get('refresh_token');
+
+            if (access_token && refresh_token) {
+              showAuthMsg('Completing sign-in…', 'info');
+              const { error } = await db.auth.setSession({
+                access_token,
+                refresh_token
+              });
+              if (error) {
+                console.error('[Capacitor Auth] setSession error:', error);
+                showAuthMsg('Error completing sign-in: ' + error.message);
+              } else {
+                closeAuthMsg();
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Capacitor Auth] Error handling appUrlOpen:', err);
+      }
+    });
+  }
 
   const pStartEl = document.getElementById('p-start');
   if (pStartEl) pStartEl.value = today();
