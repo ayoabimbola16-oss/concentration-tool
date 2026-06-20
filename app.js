@@ -20,28 +20,42 @@
  * ═══════════════════════════════════════════════════════════════
  */
 (function() {
+  // ── Step 0: NEVER reload if the URL contains OAuth tokens ─────
+  //    After Google sign-in, Supabase redirects back with
+  //    #access_token=...&refresh_token=... in the hash.
+  //    We MUST let Supabase parse those tokens before any reload.
+  const hash = window.location.hash || '';
+  const hasOAuthTokens = hash.includes('access_token') || hash.includes('refresh_token');
+
   // ── Step 1: Fresh-open reload ──────────────────────────────
   const LAUNCH_KEY = 'pt_session_started';
   if (!sessionStorage.getItem(LAUNCH_KEY)) {
     sessionStorage.setItem(LAUNCH_KEY, '1');
-    // Check for a waiting SW first — if found, activate it and
-    // let the SW_UPDATED message handle the reload instead.
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistration().then(reg => {
-        if (reg && reg.waiting) {
-          // New SW waiting → activate it; it will trigger reload via SW_UPDATED
-          reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-        } else {
-          // No new SW — just do a plain reload to get fresh files
-          setTimeout(() => window.location.reload(), 100);
-        }
-      }).catch(() => {
-        setTimeout(() => window.location.reload(), 100);
-      });
+
+    // Skip reload entirely when returning from OAuth redirect
+    if (hasOAuthTokens) {
+      // Let the rest of the script continue so Supabase can
+      // detect and save the session from the URL hash.
     } else {
-      setTimeout(() => window.location.reload(), 100);
+      // Check for a waiting SW first — if found, activate it and
+      // let the SW_UPDATED message handle the reload instead.
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration().then(reg => {
+          if (reg && reg.waiting) {
+            // New SW waiting → activate it; it will trigger reload via SW_UPDATED
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          } else {
+            // No new SW — just do a plain reload to get fresh files
+            setTimeout(() => window.location.reload(), 100);
+          }
+        }).catch(() => {
+          setTimeout(() => window.location.reload(), 100);
+        });
+      } else {
+        setTimeout(() => window.location.reload(), 100);
+      }
+      return; // stop rest of script until reload fires
     }
-    return; // stop rest of script until reload fires
   }
 
   // ── Step 2: Check for SW updates on every page load ────────
@@ -60,7 +74,14 @@
 
 // ── Wait for Supabase to load ────────────────────────────────────
 const { createClient } = supabase;
-const db = createClient(SUPABASE_URL, SUPABASE_ANON);
+const db = createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth: {
+    persistSession: true,         // store session in localStorage (default, explicit)
+    autoRefreshToken: true,       // auto-refresh expired tokens
+    detectSessionInUrl: true,     // parse OAuth tokens from URL hash
+    storageKey: 'plantrack-auth', // custom key to avoid collisions
+  }
+});
 
 // ── Global State ─────────────────────────────────────────────────
 let currentUser             = null;
@@ -2541,10 +2562,24 @@ window.startSubscription = function() {
   }
 
   db.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'SIGNED_IN' && session?.user && !currentUser) {
+    console.log('[Auth]', event, session?.user?.email);
+
+    // Handle all events that mean "user is logged in"
+    if (
+      (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') &&
+      session?.user &&
+      !currentUser
+    ) {
       document.getElementById('auth-screen').style.display = 'none';
       await initApp(session.user);
+
+      // Clean the URL hash after successful OAuth token pickup
+      const h = window.location.hash || '';
+      if (h.includes('access_token')) {
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
     }
+
     if (event === 'SIGNED_OUT') {
       currentUser = null;
       document.getElementById('app').style.display = 'none';
