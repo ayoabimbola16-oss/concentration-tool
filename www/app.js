@@ -776,10 +776,14 @@ async function register() {
     if (error) { showAuthMsg(error.message); return; }
 
     if (data.user) {
-      try {
-        await db.from('profiles').insert({ id: data.user.id, username, email });
-      } catch (insertErr) {
-        console.warn('Profile row insert failed during register, will complete on login:', insertErr);
+      // Create profile row — upsert so it works even if RLS partially blocks
+      const { error: profileErr } = await db.from('profiles').upsert({
+        id: data.user.id,
+        username,
+        email
+      }, { onConflict: 'id' });
+      if (profileErr) {
+        console.warn('Profile upsert failed during register, will complete on login:', profileErr.message);
       }
       showAuthMsg('Account created! You can now sign in.', 'success');
       document.getElementById('r-user').value = '';
@@ -1098,8 +1102,13 @@ function openEditProfileModal() {
 async function saveProfile() {
   const val = document.getElementById('edit-username-input').value.trim();
   if (!val) { toast('Username cannot be empty', 'error'); return; }
-  const { error } = await db.from('profiles').update({ username: val }).eq('id', currentUserId);
+  const { error } = await db.from('profiles').upsert({
+    id: currentUserId,
+    username: val,
+    email: currentUser?.email || currentUserProfile?.email || ''
+  }, { onConflict: 'id' });
   if (error) { toast('Error: ' + error.message, 'error'); return; }
+  if (!currentUserProfile) currentUserProfile = {};
   currentUserProfile.username = val;
   toast('Profile updated!', 'success');
   closeModal('modal-edit-profile');
@@ -1173,28 +1182,13 @@ async function saveCompleteProfile() {
 
     showUploadProgress(true, 80, 'Updating profile...');
     
-    // Check if profile exists first
-    const { data: existingRow, error: checkErr } = await db.from('profiles').select('id').eq('id', currentUserId).maybeSingle();
-    if (checkErr) throw checkErr;
-    
-    let dbError;
-    if (!existingRow) {
-      // Profile does not exist, insert it!
-      const { error: insertErr } = await db.from('profiles').insert({
-        id: currentUserId,
-        username: val,
-        email: currentUser?.email || '',
-        avatar_url: avatarUrl
-      });
-      dbError = insertErr;
-    } else {
-      // Profile exists, update it!
-      const { error: updateErr } = await db.from('profiles').update({
-        username: val,
-        avatar_url: avatarUrl
-      }).eq('id', currentUserId);
-      dbError = updateErr;
-    }
+    // Upsert: creates the row if it doesn't exist, updates if it does
+    const { error: dbError } = await db.from('profiles').upsert({
+      id: currentUserId,
+      username: val,
+      email: currentUser?.email || '',
+      avatar_url: avatarUrl
+    }, { onConflict: 'id' });
     
     if (dbError) throw dbError;
 
