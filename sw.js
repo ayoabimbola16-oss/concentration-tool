@@ -6,8 +6,8 @@
 //    3. In-app reminder messages sent to open clients at 15/10 min marks
 // ================================================================
 
-const APP_VERSION = 'plantrack-v17';
-const DATA_CACHE  = 'plantrack-data-v17';
+const APP_VERSION = 'plantrack-v18';
+const DATA_CACHE  = 'plantrack-data-v18';
 
 const APP_FILES = [
   './',

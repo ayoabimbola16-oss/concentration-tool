@@ -876,6 +876,37 @@
   </div>
 </div>
 
+<!-- COMPLETE PROFILE SETUP MODAL -->
+<div id="modal-complete-profile" class="overlay" style="display:none">
+  <div class="modal modal-sm">
+    <div class="mh">
+      <h2><i class="fa fa-user-edit"></i> Complete Profile</h2>
+      <button class="mclose" onclick="closeModal('modal-complete-profile')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb" style="display:flex; flex-direction:column; align-items:center; gap:20px;">
+      <p style="text-align:center; color:var(--text2); font-size:0.9rem; margin:0;">Welcome! Please choose a username and upload a profile picture to continue.</p>
+      
+      <!-- Avatar Upload / Preview -->
+      <div class="profile-avatar-wrap" style="position:relative; width:100px; height:100px;">
+        <div class="profile-avatar" id="setup-avatar-display" style="width:100px; height:100px; border-radius:50%; background:var(--border); display:flex; align-items:center; justify-content:center; font-size:2rem; font-weight:bold; color:var(--text3); border:2px solid var(--accent); background-size:cover; background-position:center;">?</div>
+        <label class="avatar-upload-btn" title="Upload Picture" style="position:absolute; bottom:0; right:0; background:var(--accent); color:#000; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; border:2px solid var(--surface); box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+          <i class="fa fa-camera" style="font-size:0.9rem;"></i>
+          <input type="file" id="setup-avatar-input" accept="image/*" style="display:none" onchange="setupAvatar(event)"/>
+        </label>
+      </div>
+
+      <!-- Username Input -->
+      <div class="fg" style="width:100%;">
+        <label>Choose Username</label>
+        <input type="text" id="setup-username-input" placeholder="Enter username (letters, numbers, underscores)"/>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn-save" onclick="saveCompleteProfile()" type="button" style="width:100%;"><i class="fa fa-save"></i> Save & Continue</button>
+    </div>
+  </div>
+</div>
+
 <!-- ALARM RINGING -->
 <div id="alarm-ring" style="display:none">
   <div class="ring-box">
