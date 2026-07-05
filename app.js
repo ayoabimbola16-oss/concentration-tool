@@ -114,6 +114,7 @@ let chatRealtimeChannel     = null;
 let chatFriendsCache        = [];
 let chatMessagesCache       = {};
 let activeSharePickerType   = null;
+let messageStatusInterval   = null;
 
 
 // ── Built-in Sounds ──────────────────────────────────────────────
@@ -775,7 +776,11 @@ async function register() {
     if (error) { showAuthMsg(error.message); return; }
 
     if (data.user) {
-      await db.from('profiles').insert({ id: data.user.id, username, email });
+      try {
+        await db.from('profiles').insert({ id: data.user.id, username, email });
+      } catch (insertErr) {
+        console.warn('Profile row insert failed during register, will complete on login:', insertErr);
+      }
       showAuthMsg('Account created! You can now sign in.', 'success');
       document.getElementById('r-user').value = '';
       document.getElementById('r-email').value = '';
@@ -897,6 +902,10 @@ async function initApp(user) {
 
   // Init real social system
   if (window.initSocialReal) window.initSocialReal();
+
+  // Dynamic message status relative time updater
+  if (messageStatusInterval) clearInterval(messageStatusInterval);
+  messageStatusInterval = setInterval(updateAllRelativeTimes, 5000);
 
 
   // ── Service Worker: listen for updates & auto-reload ─────────
@@ -1163,9 +1172,31 @@ async function saveCompleteProfile() {
     }
 
     showUploadProgress(true, 80, 'Updating profile...');
-    const { error: updateErr } = await db.from('profiles').update({ username: val, avatar_url: avatarUrl }).eq('id', currentUserId);
     
-    if (updateErr) throw updateErr;
+    // Check if profile exists first
+    const { data: existingRow, error: checkErr } = await db.from('profiles').select('id').eq('id', currentUserId).maybeSingle();
+    if (checkErr) throw checkErr;
+    
+    let dbError;
+    if (!existingRow) {
+      // Profile does not exist, insert it!
+      const { error: insertErr } = await db.from('profiles').insert({
+        id: currentUserId,
+        username: val,
+        email: currentUser?.email || '',
+        avatar_url: avatarUrl
+      });
+      dbError = insertErr;
+    } else {
+      // Profile exists, update it!
+      const { error: updateErr } = await db.from('profiles').update({
+        username: val,
+        avatar_url: avatarUrl
+      }).eq('id', currentUserId);
+      dbError = updateErr;
+    }
+    
+    if (dbError) throw dbError;
 
     if (!currentUserProfile) currentUserProfile = {};
     currentUserProfile.username = val;
@@ -4556,12 +4587,105 @@ function chatAvatarHTML(profile, size = 40) {
   return name.charAt(0).toUpperCase();
 }
 
+function getRelativeTime(timestamp) {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffMs = now - date;
+  
+  const diffSecs = Math.max(0, Math.floor(diffMs / 1000));
+  if (diffSecs < 5) {
+    return 'Just now';
+  }
+  if (diffSecs < 60) {
+    return `${diffSecs}s ago`;
+  }
+  
+  const diffMins = Math.floor(diffSecs / 60);
+  if (diffMins < 60) {
+    return `${diffMins}m ago`;
+  }
+  
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) {
+    return `${diffHours}h ago`;
+  }
+  
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
+function getMessageStatusHtml(msg) {
+  const isSent = msg.sender_id === currentUserId;
+  const timeStr = chatFormatTime(msg.created_at);
+  let statusText = '';
+  
+  if (isSent) {
+    const status = msg.status || (msg.is_read ? 'read' : 'sent');
+    if (status === 'read') {
+      statusText = `Seen ${getRelativeTime(msg.read_at || msg.created_at)}`;
+    } else if (status === 'delivered') {
+      statusText = `Delivered ${getRelativeTime(msg.delivered_at || msg.created_at)}`;
+    } else {
+      statusText = 'Just now';
+    }
+  } else {
+    statusText = `Received ${getRelativeTime(msg.created_at)}`;
+  }
+  
+  return `<span class="status-time-part">${timeStr}</span> <span class="status-dot">•</span> <span class="status-text-part">${statusText}</span>`;
+}
+
+function updateAllRelativeTimes() {
+  if (!activeChatFriendId) return;
+  const msgs = chatMessagesCache[activeChatFriendId] || [];
+  const container = document.getElementById('chat-messages');
+  if (!container) return;
+  
+  const statusEls = container.querySelectorAll('.msg-status-text');
+  statusEls.forEach(el => {
+    const msgId = el.getAttribute('data-msg-id');
+    const msg = msgs.find(m => m.id === msgId);
+    if (msg) {
+      el.innerHTML = getMessageStatusHtml(msg);
+    }
+  });
+}
+
+async function markAllSentMessagesDelivered() {
+  if (!currentUserId) return;
+  try {
+    const now = new Date().toISOString();
+    await db.from('messages')
+      .update({ status: 'delivered', delivered_at: now })
+      .eq('receiver_id', currentUserId)
+      .eq('status', 'sent');
+  } catch (err) {
+    console.warn('Failed to mark incoming messages as delivered:', err);
+  }
+}
+
+async function markMessageDelivered(msgId) {
+  const now = new Date().toISOString();
+  try {
+    await db.from('messages')
+      .update({ status: 'delivered', delivered_at: now })
+      .eq('id', msgId)
+      .eq('status', 'sent');
+  } catch (err) {
+    console.warn('Failed to mark message as delivered:', err);
+  }
+}
+
 // ── Load Chats Section ──────────────────────────────────────────
 
 async function loadChats() {
   const list = document.getElementById('chat-list');
   if (!list) return;
   list.innerHTML = '<div class="chat-msgs-loading"><i class="fa fa-spinner fa-spin"></i> Loading...</div>';
+
+  // Mark any sent messages received by me as delivered
+  await markAllSentMessagesDelivered();
 
   try {
     // Get accepted friends
@@ -4736,11 +4860,11 @@ async function openChat(friend) {
     if (input) input.focus();
   }, 100);
 
+  // Mark as read first so they load with the updated status
+  await markMessagesRead(friend.id);
+
   // Load messages
   await loadChatMessages(friend.id);
-
-  // Mark as read
-  await markMessagesRead(friend.id);
 }
 
 function closeChatWindow() {
@@ -4858,7 +4982,7 @@ function buildMessageRow(msg) {
         </div>
       </div>
       ${reactionsHtml}
-      <div class="msg-time">${chatFormatTime(msg.created_at)}${isSent ? ' ✓' : ''}</div>
+      <div class="msg-status-text" data-msg-id="${msg.id}">${getMessageStatusHtml(msg)}</div>
     </div>
   `;
   return row;
@@ -4941,6 +5065,11 @@ async function sendRawMessage(type, content, attachment) {
   const { data, error } = await db.from('messages').insert(msg).select().single();
   if (error) { toast('Failed to send message: ' + error.message, 'error'); return; }
 
+  // Push to local messages cache
+  if (chatMessagesCache[activeChatFriendId]) {
+    chatMessagesCache[activeChatFriendId].push(data);
+  }
+
   // Append to UI immediately
   const container = document.getElementById('chat-messages');
   if (container) {
@@ -4983,11 +5112,23 @@ function refreshConvoPreview(friendId, msg) {
 // ── Mark Read ───────────────────────────────────────────────────
 
 async function markMessagesRead(friendId) {
-  await db.from('messages')
-    .update({ is_read: true })
-    .eq('receiver_id', currentUserId)
-    .eq('sender_id', friendId)
-    .eq('is_read', false);
+  if (!currentUserId) return;
+  const now = new Date().toISOString();
+  try {
+    await db.from('messages')
+      .update({ status: 'read', read_at: now, delivered_at: now })
+      .eq('receiver_id', currentUserId)
+      .eq('sender_id', friendId)
+      .eq('status', 'sent');
+
+    await db.from('messages')
+      .update({ status: 'read', read_at: now })
+      .eq('receiver_id', currentUserId)
+      .eq('sender_id', friendId)
+      .eq('status', 'delivered');
+  } catch (err) {
+    console.warn('Failed to mark messages as read:', err);
+  }
 
   // Clear badge on convo item
   const badge = document.querySelector(`#convo-${friendId} .chat-convo-badge`);
@@ -5044,9 +5185,16 @@ function handleIncomingMessage(msg) {
       container.appendChild(buildMessageRow(msg));
       scrollChatToBottom();
     }
+    // Update local cache
+    if (chatMessagesCache[fromFriend]) {
+      chatMessagesCache[fromFriend].push(msg);
+    }
     // Mark as read immediately since chat is open
     markMessagesRead(fromFriend);
   } else {
+    // Mark as delivered
+    markMessageDelivered(msg.id);
+
     // Update badge on the convo item
     let convoItem = document.getElementById(`convo-${fromFriend}`);
     if (convoItem) {
@@ -5265,7 +5413,27 @@ function handleUpdatedMessage(msg) {
   if (activeChatFriendId === friendId) {
     const row = document.getElementById(`msg-${msg.id}`);
     if (row) {
+      const wasShown = row.classList.contains('show-status');
       const newRow = buildMessageRow(msg);
+      if (wasShown) {
+        newRow.classList.add('show-status');
+      }
+      
+      // Update cache
+      const msgs = chatMessagesCache[friendId] || [];
+      const idx = msgs.findIndex(m => m.id === msg.id);
+      if (idx !== -1) {
+        msgs[idx] = msg;
+      } else {
+        msgs.push(msg);
+      }
+      
+      // Add smooth fade animation on status change
+      const statusTextEl = newRow.querySelector('.msg-status-text');
+      if (statusTextEl) {
+        statusTextEl.style.animation = 'statusFadeIn 0.5s ease-out';
+      }
+      
       row.parentNode.replaceChild(newRow, row);
     }
   }
@@ -5324,10 +5492,13 @@ document.addEventListener('click', (e) => {
     closeMoreMessageActions();
   }
 
-  // Close any active mobile action bars
-  if (!e.target.closest('.msg-bubble') && !e.target.closest('.msg-actions-bar')) {
+  // Close any active mobile action bars and status texts
+  if (!e.target.closest('.msg-bubble') && !e.target.closest('.msg-actions-bar') && !e.target.closest('.shared-card')) {
     document.querySelectorAll('.msg-actions-bar.active').forEach(bar => {
       bar.classList.remove('active');
+    });
+    document.querySelectorAll('.msg-row.show-status').forEach(row => {
+      row.classList.remove('show-status');
     });
   }
 });
@@ -5384,6 +5555,9 @@ window.toggleMobileActions = function(event, msgId) {
   
   const row = document.getElementById(`msg-${msgId}`);
   if (!row) return;
+  
+  // Toggle status visibility
+  row.classList.toggle('show-status');
   
   const bar = row.querySelector('.msg-actions-bar');
   if (!bar) return;
