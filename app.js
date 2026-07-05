@@ -1146,20 +1146,6 @@ async function saveCompleteProfile() {
   if (!val) { toast('Please choose a username', 'error'); return; }
   if (!/^[a-zA-Z0-9_]+$/.test(val)) { toast('Username can only contain letters, numbers and underscores.', 'error'); return; }
 
-  // Require a profile picture if they don't already have one
-  const hasExistingAvatar = currentUserProfile && currentUserProfile.avatar_url;
-  if (!hasExistingAvatar && !pendingSetupAvatarFile) {
-    toast('Please upload a profile picture to continue.', 'error');
-    // Shake the avatar area to draw attention
-    const avatarDisplay = document.getElementById('setup-avatar-display');
-    if (avatarDisplay) {
-      avatarDisplay.style.animation = 'none';
-      avatarDisplay.style.border = '2px solid var(--red)';
-      setTimeout(() => { avatarDisplay.style.border = ''; }, 2000);
-    }
-    return;
-  }
-
   showUploadProgress(true, 10, 'Saving profile...');
 
   try {
@@ -1167,7 +1153,7 @@ async function saveCompleteProfile() {
     const { data: existing } = await db.from('profiles').select('id').eq('username', val).neq('id', currentUserId).maybeSingle();
     if (existing) { showUploadProgress(false); toast('Username already taken. Please choose another.', 'error'); return; }
 
-    let avatarUrl = currentUserProfile?.avatar_url || null;
+    let avatarUrl = currentUserProfile?.avatar_url || currentUser?.user_metadata?.avatar_url || null;
 
     if (pendingSetupAvatarFile) {
       showUploadProgress(true, 30, 'Uploading picture...');
