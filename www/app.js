@@ -4882,15 +4882,21 @@ async function loadChatMessages(friendId) {
 function renderMessages(msgs, container) {
   container.innerHTML = '';
   if (msgs.length === 0) {
-    container.innerHTML = `<div class="chat-msgs-loading" style="flex-direction:column;gap:8px;">
-      <i class="fa fa-comments" style="font-size:2rem;color:var(--border)"></i>
-      <span>No messages yet. Say hello! 👋</span>
-    </div>`;
+    container.innerHTML = `
+      <div class="chat-msgs-loading" style="flex-direction:column;gap:12px;padding:60px 20px;">
+        <div style="font-size:2.5rem;">⚡</div>
+        <span style="font-weight:600;color:var(--text2);">No messages yet</span>
+        <span style="font-size:0.8rem;color:var(--text3);max-width:200px;text-align:center;line-height:1.6;">Start the conversation — share your focus session, a study plan, or just say hello!</span>
+      </div>`;
     return;
   }
 
   let lastDate = '';
-  msgs.forEach(msg => {
+  let lastSenderId = null;
+  let lastTimestamp = null;
+  const GROUP_THRESHOLD_MS = 3 * 60 * 1000; // 3 min gap breaks grouping
+
+  msgs.forEach((msg, i) => {
     const dateLabel = chatFormatDate(msg.created_at);
     if (dateLabel !== lastDate) {
       const sep = document.createElement('div');
@@ -4898,21 +4904,50 @@ function renderMessages(msgs, container) {
       sep.innerHTML = `<span>${dateLabel}</span>`;
       container.appendChild(sep);
       lastDate = dateLabel;
+      lastSenderId = null; // reset grouping across date separators
     }
-    container.appendChild(buildMessageRow(msg));
+
+    const msgTime = new Date(msg.created_at).getTime();
+    const timeDiff = lastTimestamp ? (msgTime - lastTimestamp) : Infinity;
+    const isSameSender = msg.sender_id === lastSenderId;
+    const isGrouped = isSameSender && timeDiff < GROUP_THRESHOLD_MS;
+
+    lastSenderId = msg.sender_id;
+    lastTimestamp = msgTime;
+
+    const nextMsg = msgs[i + 1];
+    const nextIsSame = nextMsg && nextMsg.sender_id === msg.sender_id &&
+      (new Date(nextMsg.created_at).getTime() - msgTime) < GROUP_THRESHOLD_MS &&
+      chatFormatDate(nextMsg.created_at) === dateLabel;
+
+    let groupClass = '';
+    if (isGrouped && nextIsSame) groupClass = 'group-mid';
+    else if (isGrouped && !nextIsSame) groupClass = 'group-last'; // last in group → show avatar
+    else if (!isGrouped && nextIsSame) groupClass = 'group-first';
+    // else: standalone message — no group class
+
+    container.appendChild(buildMessageRow(msg, isGrouped, groupClass));
   });
 }
 
-function buildMessageRow(msg) {
+function buildMessageRow(msg, isGrouped = false, groupClass = '') {
   const isSent = msg.sender_id === currentUserId;
   const row = document.createElement('div');
-  row.className = `msg-row ${isSent ? 'sent' : 'received'}`;
+  row.className = `msg-row ${isSent ? 'sent' : 'received'} ${groupClass}`;
+  if (isGrouped) row.classList.add('grouped');
   row.id = `msg-${msg.id}`;
 
   const profile = isSent ? currentUserProfile : activeChatFriendProfile;
   const avatarHTML = profile?.avatar_url
     ? `<img src="${profile.avatar_url}" />`
     : (profile?.username || '?').charAt(0).toUpperCase();
+
+  // Show avatar only on the last message in a group (or standalone)
+  // group-mid and group-first hide the avatar via a placeholder
+  const showAvatar = !isGrouped || groupClass === 'group-last';
+  const avatarEl = showAvatar
+    ? `<div class="msg-avatar-sm">${avatarHTML}</div>`
+    : `<div class="msg-avatar-placeholder"></div>`;
 
   let bubbleContent = '';
   if (msg.type === 'text' || !msg.type) {
@@ -4936,7 +4971,7 @@ function buildMessageRow(msg) {
   }
 
   row.innerHTML = `
-    <div class="msg-avatar-sm">${avatarHTML}</div>
+    ${avatarEl}
     <div class="msg-content-wrapper">
       <div class="msg-bubble-row">
         ${bubbleContent}
@@ -4944,16 +4979,17 @@ function buildMessageRow(msg) {
           <div class="quick-emojis">
             <button class="quick-emoji-btn" onclick="toggleReaction('${msg.id}', '🔥')" type="button">🔥</button>
             <button class="quick-emoji-btn" onclick="toggleReaction('${msg.id}', '❤️')" type="button">❤️</button>
-            <button class="quick-emoji-btn" onclick="toggleReaction('${msg.id}', '🎉')" type="button">🎉</button>
+            <button class="quick-emoji-btn" onclick="toggleReaction('${msg.id}', '💡')" type="button">💡</button>
+            <button class="quick-emoji-btn" onclick="toggleReaction('${msg.id}', '🎯')" type="button">🎯</button>
           </div>
           <div class="actions-separator"></div>
           <div class="action-btn-wrap">
             <button class="action-bar-btn emoji-trigger" onclick="showReactionPicker('${msg.id}', this)" type="button">
               <i class="fa-regular fa-smile"></i>
             </button>
-            <div class="action-tooltip">Add Reaction</div>
+            <div class="action-tooltip">React</div>
           </div>
-          <button class="action-bar-btn" onclick="copyMessageText('${msg.id}')" type="button" title="Copy Text">
+          <button class="action-bar-btn" onclick="copyMessageText('${msg.id}')" type="button" title="Copy">
             <i class="fa-regular fa-copy"></i>
           </button>
           <button class="action-bar-btn" onclick="showMoreMessageActions('${msg.id}', this)" type="button" title="More">
@@ -5027,6 +5063,9 @@ async function sendChatMessage() {
   if (!text) return;
 
   input.value = '';
+  // Reset send/mic morph
+  handleChatInput();
+  
   await sendRawMessage('text', text, null);
 }
 
@@ -5046,16 +5085,15 @@ async function sendRawMessage(type, content, attachment) {
   if (error) { toast('Failed to send message: ' + error.message, 'error'); return; }
 
   // Push to local messages cache
-  if (chatMessagesCache[activeChatFriendId]) {
-    chatMessagesCache[activeChatFriendId].push(data);
+  if (!chatMessagesCache[activeChatFriendId]) {
+    chatMessagesCache[activeChatFriendId] = [];
   }
+  chatMessagesCache[activeChatFriendId].push(data);
 
-  // Append to UI immediately
+  // Append to UI immediately with proper grouping
   const container = document.getElementById('chat-messages');
   if (container) {
-    const emptyDiv = container.querySelector('.chat-msgs-loading');
-    if (emptyDiv) container.innerHTML = '';
-    container.appendChild(buildMessageRow(data));
+    renderMessages(chatMessagesCache[activeChatFriendId], container);
     scrollChatToBottom();
   }
 
@@ -5156,18 +5194,18 @@ function subscribeToChatMessages() {
 function handleIncomingMessage(msg) {
   const fromFriend = msg.sender_id;
 
-  // If this chat is currently open, append message directly
+  // If this chat is currently open, render with proper grouping
   if (activeChatFriendId === fromFriend) {
+    // Update local cache
+    if (!chatMessagesCache[fromFriend]) {
+      chatMessagesCache[fromFriend] = [];
+    }
+    chatMessagesCache[fromFriend].push(msg);
+
     const container = document.getElementById('chat-messages');
     if (container) {
-      const emptyDiv = container.querySelector('.chat-msgs-loading');
-      if (emptyDiv) container.innerHTML = '';
-      container.appendChild(buildMessageRow(msg));
+      renderMessages(chatMessagesCache[fromFriend], container);
       scrollChatToBottom();
-    }
-    // Update local cache
-    if (chatMessagesCache[fromFriend]) {
-      chatMessagesCache[fromFriend].push(msg);
     }
     // Mark as read immediately since chat is open
     markMessagesRead(fromFriend);

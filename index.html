@@ -530,21 +530,30 @@
         <div id="admin-feedback-list" style="display:flex;flex-direction:column;gap:12px;margin-top:14px">
           <div style="color:var(--text3);font-size:.85rem">Loading feedback...</div>
         </div>
-      </section>      <!-- ─── CHATS ─── -->
+      </section>
+      <!-- ─── CHATS ─── -->
       <section id="sec-chats" class="sec chat-section">
         <div class="chat-layout">
-          <!-- LEFT: Conversations List -->
+
+          <!-- LEFT: Sidebar -->
           <div class="chat-sidebar" id="chat-sidebar">
             <div class="chat-sidebar-header">
-              <h2><i class="fa fa-comments"></i> Messages</h2>
+              <h2><i class="fa fa-bolt"></i> Nexus Chat</h2>
               <div class="chat-search-wrap">
                 <i class="fa fa-search chat-search-icon"></i>
-                <input type="text" id="chat-search-input" placeholder="Search friends..." oninput="filterChatList(this.value)"/>
+                <input type="text" id="chat-search-input" placeholder="Search conversations..." oninput="filterChatList(this.value)"/>
               </div>
             </div>
+
+            <!-- Online Friends Vibe Row -->
+            <div class="chat-vibe-row" id="chat-vibe-row">
+              <!-- Populated dynamically by JS -->
+            </div>
+
+            <!-- Conversation List -->
             <div class="chat-list" id="chat-list">
               <div class="chat-list-empty">
-                <i class="fa fa-user-friends"></i>
+                <i class="fa fa-bolt"></i>
                 <p>No friends yet.<br/>Add friends to start chatting!</p>
               </div>
             </div>
@@ -552,22 +561,28 @@
 
           <!-- RIGHT: Chat Window -->
           <div class="chat-window" id="chat-window">
-            <!-- Default state: no chat open -->
+
+            <!-- Empty state -->
             <div class="chat-window-empty" id="chat-window-empty">
-              <div class="chat-empty-icon"><i class="fa fa-comments"></i></div>
-              <h3>Select a conversation</h3>
-              <p>Choose a friend from the list to start chatting</p>
+              <div class="chat-empty-icon"><i class="fa fa-bolt"></i></div>
+              <h3>Start a conversation</h3>
+              <p>Select a friend and connect — share plans, focus sessions, and more.</p>
             </div>
 
             <!-- Active chat -->
             <div class="chat-active" id="chat-active" style="display:none">
-              <!-- Chat Header -->
+
+              <!-- Header -->
               <div class="chat-header" id="chat-header">
                 <button class="chat-back-btn" onclick="closeChatWindow()" type="button"><i class="fa fa-arrow-left"></i></button>
                 <div class="chat-header-avatar" id="chat-header-avatar"></div>
                 <div class="chat-header-info">
                   <div class="chat-header-name" id="chat-header-name"></div>
                   <div class="chat-header-status" id="chat-header-status">online</div>
+                </div>
+                <div class="chat-header-actions">
+                  <button class="chat-action-btn" onclick="startCall('voice')" title="Voice Call" type="button"><i class="fa fa-phone"></i></button>
+                  <button class="chat-action-btn" onclick="startCall('video')" title="Video Call" type="button"><i class="fa fa-video"></i></button>
                 </div>
               </div>
 
@@ -587,20 +602,27 @@
                   <button class="chat-attach-btn" onclick="openSharePicker('timetable')" title="Share Timetable" type="button">
                     <i class="fa fa-calendar-alt"></i>
                   </button>
-                  <button class="chat-attach-btn" onclick="openSharePicker('file')" title="Share File" type="button">
-                    <i class="fa fa-paperclip"></i>
-                  </button>
                   <button class="chat-attach-btn" onclick="openSharePicker('plan')" title="Share Plan" type="button">
                     <i class="fa fa-tasks"></i>
                   </button>
+                  <button class="chat-attach-btn" onclick="openSharePicker('file')" title="Attach File" type="button">
+                    <i class="fa fa-paperclip"></i>
+                  </button>
                 </div>
                 <div class="chat-input-wrap">
-                  <input type="text" id="chat-input" placeholder="Type a message..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChatMessage()}" autocomplete="off"/>
+                  <input type="text" id="chat-input"
+                    placeholder="Message..."
+                    oninput="handleChatInput()"
+                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChatMessage()}"
+                    autocomplete="off"/>
                 </div>
-                <button class="chat-send-btn" onclick="sendChatMessage()" type="button">
-                  <i class="fa fa-paper-plane"></i>
+                <!-- Morphing Send/Mic button -->
+                <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()" type="button">
+                  <i class="fa fa-microphone mic-icon" id="send-icon-mic"></i>
+                  <i class="fa fa-paper-plane send-icon" id="send-icon-plane" style="display:none"></i>
                 </button>
               </div>
+
             </div>
           </div>
         </div>
@@ -903,6 +925,31 @@
     </div>
     <div class="mf">
       <button class="btn-save" onclick="saveCompleteProfile()" type="button" style="width:100%;"><i class="fa fa-save"></i> Save & Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- MOCK CALL MODAL -->
+<div id="modal-call" class="overlay" style="display:none; background: rgba(10, 10, 12, 0.96); backdrop-filter: blur(20px); z-index: 10005;">
+  <div class="modal modal-sm" style="background: transparent; border: none; box-shadow: none; max-width: 320px; text-align: center;">
+    <div class="call-avatar-wrap" style="margin: 40px auto 20px; width: 120px; height: 120px; position: relative; display: flex; align-items: center; justify-content: center;">
+      <div class="call-pulse-circle" style="position: absolute; width: 100%; height: 100%; border-radius: 50%; border: 2px solid var(--accent); opacity: 0.6; animation: callPulse 1.8s infinite ease-in-out;"></div>
+      <div class="call-pulse-circle" style="position: absolute; width: 120%; height: 120%; border-radius: 50%; border: 2px solid var(--accent); opacity: 0.3; animation: callPulse 1.8s infinite ease-in-out; animation-delay: 0.6s;"></div>
+      <div id="call-avatar" style="width: 120px; height: 120px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent-dark)); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 3rem; font-weight: bold; color: #000; z-index: 5; border: 4px solid rgba(255,255,255,0.05); background-size: cover; background-position: center;">?</div>
+    </div>
+    
+    <h2 id="call-name" style="color: #fff; font-size: 1.5rem; font-weight: 700; margin-bottom: 6px;">Friend Name</h2>
+    <p id="call-status" style="color: var(--accent); font-size: 0.9rem; font-weight: 500; letter-spacing: 0.5px; animation: blink 1.5s infinite;">CALLING...</p>
+    
+    <div id="video-preview-box" style="display: none; width: 100%; height: 150px; background: #000; border-radius: 12px; margin-top: 20px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); position: relative;">
+      <div style="position: absolute; bottom: 8px; left: 8px; color: #fff; font-size: 0.75rem; background: rgba(0,0,0,0.5); padding: 2px 6px; border-radius: 4px; z-index: 10;">Self Camera Preview</div>
+      <video id="call-self-video" style="width: 100%; height: 100%; object-fit: cover;" autoplay muted playsinline></video>
+    </div>
+
+    <div style="display: flex; gap: 24px; justify-content: center; margin-top: 60px;">
+      <button class="call-control-btn" id="call-btn-mute" onclick="toggleCallMute()" style="width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.08); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; cursor: pointer; transition: all 0.2s;"><i class="fa fa-microphone-slash"></i></button>
+      <button class="call-control-btn hangup" onclick="hangupCall()" style="width: 58px; height: 58px; border-radius: 50%; background: #ef4444; border: none; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4);"><i class="fa fa-phone-slash"></i></button>
+      <button class="call-control-btn" id="call-btn-speaker" onclick="toggleCallSpeaker()" style="width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.08); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; cursor: pointer; transition: all 0.2s;"><i class="fa fa-volume-up"></i></button>
     </div>
   </div>
 </div>
