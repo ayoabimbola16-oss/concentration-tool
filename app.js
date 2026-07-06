@@ -4548,11 +4548,36 @@ function initFocusTimerExtras() {
 // ── Helpers ─────────────────────────────────────────────────────
 
 function chatFormatTime(ts) {
+  if (!ts) return '';
   const d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  
+  // Smart Twitter-style relative time for conversation list previews
+  const now = new Date();
+  const diffMs = now - d;
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffSecs < 60) return 'Now';
+  if (diffMins < 60) return `${diffMins}m`;
+  if (diffHours < 24 && d.toDateString() === now.toDateString()) return `${diffHours}h`;
+  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return 'Yest.';
+  if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' });
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+function chatFormatTimeAbsolute(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 function chatFormatDate(ts) {
+  if (!ts) return '';
   const d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
   const now = new Date();
   if (d.toDateString() === now.toDateString()) return 'Today';
   const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
@@ -4597,7 +4622,7 @@ function getRelativeTime(timestamp) {
 
 function getMessageStatusHtml(msg) {
   const isSent = msg.sender_id === currentUserId;
-  const timeStr = chatFormatTime(msg.created_at);
+  const timeStr = chatFormatTimeAbsolute(msg.created_at);
   let statusText = '';
   
   if (isSent) {
@@ -4880,8 +4905,7 @@ async function loadChatMessages(friendId) {
 }
 
 function renderMessages(msgs, container) {
-  container.innerHTML = '';
-  if (msgs.length === 0) {
+  if (!msgs || msgs.length === 0) {
     container.innerHTML = `
       <div class="chat-msgs-loading" style="flex-direction:column;gap:12px;padding:60px 20px;">
         <div style="font-size:2.5rem;">⚡</div>
@@ -4891,43 +4915,54 @@ function renderMessages(msgs, container) {
     return;
   }
 
+  // Build into a fragment first so if anything throws, the container keeps old content
+  const frag = document.createDocumentFragment();
   let lastDate = '';
   let lastSenderId = null;
   let lastTimestamp = null;
-  const GROUP_THRESHOLD_MS = 3 * 60 * 1000; // 3 min gap breaks grouping
+  const GROUP_THRESHOLD_MS = 3 * 60 * 1000;
 
-  msgs.forEach((msg, i) => {
-    const dateLabel = chatFormatDate(msg.created_at);
-    if (dateLabel !== lastDate) {
-      const sep = document.createElement('div');
-      sep.className = 'chat-date-sep';
-      sep.innerHTML = `<span>${dateLabel}</span>`;
-      container.appendChild(sep);
-      lastDate = dateLabel;
-      lastSenderId = null; // reset grouping across date separators
+  for (let i = 0; i < msgs.length; i++) {
+    try {
+      const msg = msgs[i];
+      if (!msg) continue;
+      const dateLabel = chatFormatDate(msg.created_at);
+      if (dateLabel !== lastDate) {
+        const sep = document.createElement('div');
+        sep.className = 'chat-date-sep';
+        sep.innerHTML = `<span>${dateLabel || 'Today'}</span>`;
+        frag.appendChild(sep);
+        lastDate = dateLabel;
+        lastSenderId = null;
+      }
+
+      const msgTime = msg.created_at ? new Date(msg.created_at).getTime() : Date.now();
+      const timeDiff = lastTimestamp ? (msgTime - lastTimestamp) : Infinity;
+      const isSameSender = msg.sender_id === lastSenderId;
+      const isGrouped = isSameSender && timeDiff < GROUP_THRESHOLD_MS;
+
+      lastSenderId = msg.sender_id;
+      lastTimestamp = msgTime;
+
+      const nextMsg = msgs[i + 1];
+      const nextIsSame = nextMsg && nextMsg.sender_id === msg.sender_id &&
+        nextMsg.created_at && (new Date(nextMsg.created_at).getTime() - msgTime) < GROUP_THRESHOLD_MS &&
+        chatFormatDate(nextMsg.created_at) === dateLabel;
+
+      let groupClass = '';
+      if (isGrouped && nextIsSame) groupClass = 'group-mid';
+      else if (isGrouped && !nextIsSame) groupClass = 'group-last';
+      else if (!isGrouped && nextIsSame) groupClass = 'group-first';
+
+      frag.appendChild(buildMessageRow(msg, isGrouped, groupClass));
+    } catch (err) {
+      console.warn('[Chat] Skipping bad message at index', i, err);
     }
+  }
 
-    const msgTime = new Date(msg.created_at).getTime();
-    const timeDiff = lastTimestamp ? (msgTime - lastTimestamp) : Infinity;
-    const isSameSender = msg.sender_id === lastSenderId;
-    const isGrouped = isSameSender && timeDiff < GROUP_THRESHOLD_MS;
-
-    lastSenderId = msg.sender_id;
-    lastTimestamp = msgTime;
-
-    const nextMsg = msgs[i + 1];
-    const nextIsSame = nextMsg && nextMsg.sender_id === msg.sender_id &&
-      (new Date(nextMsg.created_at).getTime() - msgTime) < GROUP_THRESHOLD_MS &&
-      chatFormatDate(nextMsg.created_at) === dateLabel;
-
-    let groupClass = '';
-    if (isGrouped && nextIsSame) groupClass = 'group-mid';
-    else if (isGrouped && !nextIsSame) groupClass = 'group-last'; // last in group → show avatar
-    else if (!isGrouped && nextIsSame) groupClass = 'group-first';
-    // else: standalone message — no group class
-
-    container.appendChild(buildMessageRow(msg, isGrouped, groupClass));
-  });
+  // Only clear & replace after successful build
+  container.innerHTML = '';
+  container.appendChild(frag);
 }
 
 function buildMessageRow(msg, isGrouped = false, groupClass = '') {
@@ -5056,6 +5091,62 @@ function scrollChatToBottom() {
 
 // ── Send Message ────────────────────────────────────────────────
 
+let isTypingSent = false;
+let typingTimeout = null;
+
+window.handleChatInput = function() {
+  try {
+    const inputEl = document.getElementById('chat-input');
+    const micIcon = document.getElementById('send-icon-mic');
+    const planeIcon = document.getElementById('send-icon-plane');
+    const sendBtn = document.getElementById('chat-send-btn');
+    if (micIcon && planeIcon && sendBtn) {
+      const hasText = inputEl && inputEl.value.trim().length > 0;
+      if (hasText) {
+        micIcon.style.display = 'none';
+        planeIcon.style.display = '';
+        sendBtn.style.background = 'linear-gradient(135deg, #f0c040, #d4950f)';
+      } else {
+        micIcon.style.display = '';
+        planeIcon.style.display = 'none';
+        sendBtn.style.background = 'linear-gradient(135deg, rgba(240,192,64,0.7), rgba(212,149,15,0.7))';
+      }
+    }
+  } catch (err) {
+    console.warn('[Chat] handleChatInput error:', err);
+  }
+
+  // Real-time typing notification
+  try {
+    if (!activeChatFriendId || !typingChannel) return;
+
+    if (!isTypingSent) {
+      isTypingSent = true;
+      typingChannel.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { senderId: currentUserId, isTyping: true }
+      });
+    }
+
+    if (typingTimeout) clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => {
+      isTypingSent = false;
+      if (typingChannel) {
+        try {
+          typingChannel.send({
+            type: 'broadcast',
+            event: 'typing',
+            payload: { senderId: currentUserId, isTyping: false }
+          });
+        } catch (e) {}
+      }
+    }, 2000);
+  } catch (err) {
+    console.warn('[Chat] typingChannel broadcast error:', err);
+  }
+};
+
 async function sendChatMessage() {
   const input = document.getElementById('chat-input');
   if (!input || !activeChatFriendId) return;
@@ -5064,7 +5155,7 @@ async function sendChatMessage() {
 
   input.value = '';
   // Reset send/mic morph
-  handleChatInput();
+  window.handleChatInput();
   
   await sendRawMessage('text', text, null);
 }
@@ -5090,10 +5181,22 @@ async function sendRawMessage(type, content, attachment) {
   }
   chatMessagesCache[activeChatFriendId].push(data);
 
-  // Append to UI immediately with proper grouping
+  // Append to UI immediately
   const container = document.getElementById('chat-messages');
   if (container) {
-    renderMessages(chatMessagesCache[activeChatFriendId], container);
+    try {
+      // Remove empty-state placeholder if present
+      const emptyDiv = container.querySelector('.chat-msgs-loading');
+      if (emptyDiv) container.innerHTML = '';
+      // Try grouped re-render
+      renderMessages(chatMessagesCache[activeChatFriendId], container);
+    } catch (renderErr) {
+      // Fallback: just append the new message row directly
+      console.warn('[Chat] renderMessages failed, using fallback:', renderErr);
+      const emptyDiv = container.querySelector('.chat-msgs-loading');
+      if (emptyDiv) container.innerHTML = '';
+      container.appendChild(buildMessageRow(data));
+    }
     scrollChatToBottom();
   }
 
@@ -5204,7 +5307,14 @@ function handleIncomingMessage(msg) {
 
     const container = document.getElementById('chat-messages');
     if (container) {
-      renderMessages(chatMessagesCache[fromFriend], container);
+      try {
+        renderMessages(chatMessagesCache[fromFriend], container);
+      } catch (renderErr) {
+        console.warn('[Chat] renderMessages failed on incoming, using fallback:', renderErr);
+        const emptyDiv = container.querySelector('.chat-msgs-loading');
+        if (emptyDiv) container.innerHTML = '';
+        container.appendChild(buildMessageRow(msg));
+      }
       scrollChatToBottom();
     }
     // Mark as read immediately since chat is open
