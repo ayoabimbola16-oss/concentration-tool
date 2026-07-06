@@ -3446,16 +3446,15 @@ function getLocalDateStr() {
 }
 
 /**
- * Check if dateB is exactly 1 calendar day after dateA
- * Both are YYYY-MM-DD strings
+ * Get calendar day difference between two YYYY-MM-DD date strings.
+ * Returns number of days dateB is after dateA.
  */
-function isConsecutiveDay(dateA, dateB) {
-  if (!dateA || !dateB) return false;
+function getDaysDiff(dateA, dateB) {
+  if (!dateA || !dateB) return Infinity;
   const a = new Date(dateA + 'T00:00:00');
   const b = new Date(dateB + 'T00:00:00');
   const diffMs = b.getTime() - a.getTime();
-  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-  return diffDays === 1;
+  return Math.round(diffMs / (1000 * 60 * 60 * 24));
 }
 
 /**
@@ -3496,10 +3495,21 @@ async function syncStreak() {
     }
 
     // Calculate new streak
-    if (isConsecutiveDay(lastActive, todayStr)) {
-      currentStreak++;
+    if (!lastActive) {
+      currentStreak = 1;
     } else {
-      currentStreak = 1; // reset — streak broken or first use
+      const daysDiff = getDaysDiff(lastActive, todayStr);
+      if (daysDiff === 1) {
+        currentStreak++;
+      } else if (daysDiff === 2) {
+        // Grace period applied (missed 1 day)
+        currentStreak++;
+        setTimeout(() => {
+          toast("🔥 Streak saved! You used your 1-day grace period.", "info");
+        }, 1500);
+      } else {
+        currentStreak = 1; // reset — missed 2+ days
+      }
     }
 
     // Update longest
