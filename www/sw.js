@@ -6,8 +6,8 @@
 //    3. In-app reminder messages sent to open clients at 15/10 min marks
 // ================================================================
 
-const APP_VERSION = 'plantrack-v22';
-const DATA_CACHE  = 'plantrack-data-v22';
+const APP_VERSION = 'plantrack-v23';
+const DATA_CACHE  = 'plantrack-data-v23';
 
 const APP_FILES = [
   './',
@@ -135,6 +135,48 @@ self.addEventListener('message', async event => {
           data.snoozeMs,
           true
         );
+      }
+      break;
+
+    case 'GET_BACKGROUND_CAPABILITY': {
+      // Correctly check TimestampTrigger support from the SW scope
+      // (registration context is reliable; Notification.prototype check is not)
+      const supportsExact = 'showTrigger' in self.registration;
+      const supportsNotifications = 'Notification' in self;
+      const capability = {
+        supportsExactBackground: supportsExact,
+        supportsNotifications,
+        // True only when alarms will fire even with browser closed
+        fullBackgroundSupport: supportsExact && supportsNotifications,
+        swVersion: APP_VERSION,
+      };
+      // Reply directly to the requesting client
+      if (event.source) {
+        event.source.postMessage({ type: 'BACKGROUND_CAPABILITY', capability });
+      } else {
+        // Broadcast to all clients if source not available
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(c => c.postMessage({ type: 'BACKGROUND_CAPABILITY', capability }));
+      }
+      break;
+    }
+
+    case 'SCHEDULE_PERIODIC_CHECK':
+      // Try to register periodic background sync for more reliable alarm checking.
+      // This requires the user to have granted periodic background sync permission
+      // (Chrome on Android grants this automatically for installed PWAs).
+      try {
+        if ('periodicSync' in self.registration) {
+          await self.registration.periodicSync.register('alarm-check', {
+            minInterval: 60 * 1000, // minimum 1 minute (browser may enforce longer)
+          });
+          await self.registration.periodicSync.register('plan-check', {
+            minInterval: 60 * 60 * 1000, // 1 hour for plan reminders
+          });
+        }
+      } catch (e) {
+        // periodicSync may be denied — not fatal, checkAlarms() fallback still works
+        console.warn('[SW] Could not register periodic sync:', e.message);
       }
       break;
 
@@ -323,6 +365,24 @@ self.addEventListener('notificationclick', event => {
         return self.clients.openWindow('./index.html');
       })
   );
+});
+
+// ── NOTIFICATION CLOSE ────────────────────────────────────────────
+// Fires when user swipes away the notification without clicking an action.
+// We do NOT auto-dismiss the alarm here (it may fire again for repeating alarms)
+// but we do mark reminder notifications as seen to avoid double-firing.
+self.addEventListener('notificationclose', event => {
+  const tag = event.notification.tag || '';
+  // Mark reminder notifications as closed so fallback checkAlarms() won't re-fire them
+  if (tag.startsWith('remind15-') || tag.startsWith('remind10-')) {
+    const alarmId = tag.replace(/^(remind15-|remind10-)/, '');
+    const prefix = tag.startsWith('remind15-') ? 'r15' : 'r10';
+    const todayStr = new Date().toISOString().split('T')[0];
+    // Use waitUntil to ensure we don't get killed before writing
+    event.waitUntil(
+      saveData(`${prefix}-fired-${alarmId}-${todayStr}`, true)
+    );
+  }
 });
 
 async function handleDismiss(alarmId, tag) {

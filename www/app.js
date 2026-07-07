@@ -890,6 +890,58 @@ async function initApp(user) {
   startAlarmChecker();
   startAlarmCountdown();
   buildSoundGrid();
+
+  // Native Android Startup Tasks (Permissions and Background updates sync)
+  if (window.AlarmService && window.AlarmService.isAndroid()) {
+    (async () => {
+      try {
+        const hasPerm = await window.AlarmService.checkPermission();
+        if (!hasPerm) {
+          const confirmResult = confirm(
+            "PlanTrack needs 'Notifications' and 'Alarms & Reminders' permissions to ring alarms when the app is closed. Tap OK to grant access."
+          );
+          if (confirmResult) {
+            // requestPermission() handles both notification (Android 13+) + exact alarm permissions
+            await window.AlarmService.requestPermission();
+            // Clear capability cache so isBackgroundSupported() re-evaluates after grant
+            if (window.AlarmService.clearCapabilityCache) window.AlarmService.clearCapabilityCache();
+          }
+        }
+        
+        // Process background offline updates
+        const updates = await window.AlarmService.getPendingUpdates();
+        if (updates && updates.length > 0) {
+          console.log('[AlarmService] Processing offline updates:', updates);
+          for (const update of updates) {
+            try {
+              if (update.type === 'update') {
+                const payload = { is_active: update.is_active };
+                if (update.date) payload.date = update.date;
+                await db.from('alarms').update(payload).eq('id', update.alarmId);
+              } else if (update.type === 'insert') {
+                const payload = {
+                  user_id: user.id,
+                  time: update.time,
+                  date: update.date,
+                  label: update.label,
+                  repeat: 'none',
+                  sound: update.sound || 'beep',
+                  is_active: true
+                };
+                await db.from('alarms').insert(payload);
+              }
+            } catch (err) {
+              console.error('[AlarmService] Failed to sync offline update:', update, err);
+            }
+          }
+          // Refresh alarms from database to reflect synced status
+          loadAlarms();
+        }
+      } catch (e) {
+        console.error('[AlarmService] Android initialization startup check failed:', e);
+      }
+    })();
+  }
   
   // Sync state when coming back to app
   window.addEventListener('focus', () => {
@@ -1454,151 +1506,14 @@ async function loadAlarms() {
   const { data, error } = await db.from('alarms').select('*').eq('user_id',currentUserId).order('time');
   if (error) { toast('Could not load alarms.','error'); return; }
   renderAlarms(data||[]);
-  if (window.pushAlarmsToSW) window.pushAlarmsToSW(data||[]);
   
-  // ── CAPACITOR NATIVE ALARM INTEGRATION ────────────────────────────
-  // If running as a compiled Android/iOS app via Capacitor, this will
-  // schedule exact OS-level background alarms that survive app closure.
-  if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications) {
-    try {
-      await scheduleNativeCapacitorAlarms(data || []);
-    } catch (e) {
-      console.error('Capacitor native alarm scheduling failed:', e);
-    }
-  }
-}
+  // Cross-platform Alarm Manager Synchronization
+  if (window.AlarmService) {
+    await window.AlarmService.sync(data || []);
 
-// Simple hash function for generating unique integer IDs for Capacitor
-function generateNumericId(uuidStr, offset = 0) {
-  let hash = 0;
-  for (let i = 0; i < uuidStr.length; i++) {
-    hash = ((hash << 5) - hash) + uuidStr.charCodeAt(i);
-    hash |= 0; // Convert to 32bit integer
-  }
-  return Math.abs(hash) % 1000000 + offset;
-}
-
-async function scheduleNativeCapacitorAlarms(alarms) {
-  const LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
-  
-  let permStatus = await LocalNotifications.checkPermissions();
-  if (permStatus.display !== 'granted') {
-    permStatus = await LocalNotifications.requestPermissions();
-  }
-  if (permStatus.display !== 'granted') return;
-
-  // ── Android Exact Alarm Permission Check ──
-  if (window.Capacitor.getPlatform() === 'android') {
-    try {
-      const exactStatus = await LocalNotifications.checkExactNotificationSetting();
-      if (exactStatus.exact_alarm !== 'granted') {
-        const confirmResult = confirm(
-          "PlanTrack needs 'Alarms & Reminders' permission to ring alarms when the app is closed. Click OK to open Settings and turn it on."
-        );
-        if (confirmResult) {
-          await LocalNotifications.changeExactNotificationSetting();
-        }
-        return; // Stop scheduling until permission is granted
-      }
-    } catch (e) {
-      console.warn('[PlanTrack Native] Failed to check exact alarm setting:', e);
-    }
-  }
-
-  // ── Create notification channels (Android 8+ REQUIRES this for custom sound) ──
-  // Note: We use -v2 channel IDs because channel sound is immutable once created.
-  try {
-    await LocalNotifications.createChannel({
-      id: 'plantrack-alarms-v2',
-      name: 'PlanTrack Alarms',
-      description: 'Alarm notifications with custom sound and vibration',
-      importance: 5,          // MAX importance = heads-up + sound + vibrate
-      visibility: 1,          // Show on lock screen
-      sound: 'alarm_sound',   // Custom loud wav sound file (alarm_sound.wav in res/raw)
-      vibration: true,
-      lights: true,
-      lightColor: '#FF6B35',
-    });
-
-    await LocalNotifications.createChannel({
-      id: 'plantrack-reminders-v2',
-      name: 'PlanTrack Reminders',
-      description: 'Pre-alarm reminder notifications with custom sound',
-      importance: 4,          // HIGH importance = heads-up + sound
-      visibility: 1,
-      sound: 'alarm_sound',
-      vibration: true,
-    });
-    console.log('[PlanTrack Native] Notification channels v2 created with custom alarm sound.');
-  } catch (e) {
-    console.warn('[PlanTrack Native] Channel creation skipped:', e.message);
-  }
-
-  // Clear existing pending native notifications to avoid duplicates
-  const pending = await LocalNotifications.getPending();
-  if (pending.notifications && pending.notifications.length > 0) {
-     await LocalNotifications.cancel({ 
-       notifications: pending.notifications.map(n => ({ id: n.id })) 
-     });
-  }
-
-  const notifsToSchedule = [];
-  const now = Date.now();
-  
-  alarms.forEach(alarm => {
-    if (!alarm.is_active) return;
-    
-    const nextDate = getNextAlarmDate(alarm.time, alarm.date, alarm.repeat);
-    if (!nextDate) return;
-    
-    const nextMs = nextDate.getTime();
-    if (nextMs <= now) return;
-
-    const baseId = generateNumericId(alarm.id, 0);
-
-    // ── Exact Alarm notification (LOUD, full sound, vibration) ──
-    notifsToSchedule.push({
-      id: baseId,
-      title: `⏰ ${alarm.label}`,
-      body: `Your alarm is ringing! Time: ${fmt12(alarm.time)}`,
-      channelId: 'plantrack-alarms-v2',
-      schedule: { at: new Date(nextMs), allowWhileIdle: true },
-      sound: 'alarm_sound',
-      extra: { alarmId: alarm.id, type: 'alarm' },
-    });
-
-    // ── 15-min reminder ──
-    const r15 = nextMs - 15 * 60000;
-    if (r15 > now) {
-      notifsToSchedule.push({
-        id: generateNumericId(alarm.id, 1000000),
-        title: `🔔 Alarm in 15 minutes`,
-        body: `"${alarm.label}" is coming up at ${fmt12(alarm.time)}`,
-        channelId: 'plantrack-reminders-v2',
-        schedule: { at: new Date(r15), allowWhileIdle: true },
-        sound: 'alarm_sound',
-        extra: { alarmId: alarm.id, type: 'reminder' },
-      });
-    }
-
-    // ── 10-min reminder ──
-    const r10 = nextMs - 10 * 60000;
-    if (r10 > now) {
-      notifsToSchedule.push({
-        id: generateNumericId(alarm.id, 2000000),
-        title: `🔔 Alarm in 10 minutes`,
-        body: `"${alarm.label}" is coming up at ${fmt12(alarm.time)}`,
-        channelId: 'plantrack-reminders-v2',
-        schedule: { at: new Date(r10), allowWhileIdle: true },
-        sound: 'alarm_sound',
-        extra: { alarmId: alarm.id, type: 'reminder' },
-      });
-    }
-  });
-
-  if (notifsToSchedule.length > 0) {
-    await LocalNotifications.schedule({ notifications: notifsToSchedule });
-    console.log(`[PlanTrack Native] Scheduled ${notifsToSchedule.length} native alarms/reminders on v2 channels.`);
+    // Toggle browser background alarm support warning banner
+    const supported = await window.AlarmService.isBackgroundSupported();
+    window.AlarmService.showBackgroundWarning(!supported);
   }
 }
 
@@ -1655,6 +1570,11 @@ function renderAlarms(alarms) {
 
 async function toggleAlarm(id, val) {
   await db.from('alarms').update({ is_active:val }).eq('id',id).eq('user_id',currentUserId);
+  // When turning an alarm OFF, cancel any scheduled native/SW alarm immediately
+  // to prevent phantom rings if the alarm time passes while disabled.
+  if (!val && window.AlarmService) {
+    await window.AlarmService.cancelAlarm(id);
+  }
   loadAlarms();
 }
 
@@ -2582,6 +2502,8 @@ function confirmDelete(type, id, name) {
 async function deleteItem(type, id) {
   const handlers = {
     alarm: async () => {
+      // Cancel the scheduled alarm before deleting from DB to prevent phantom rings
+      if (window.AlarmService) await window.AlarmService.cancelAlarm(id);
       await db.from('alarms').delete().eq('id',id).eq('user_id',currentUserId);
       toast('Alarm deleted.'); loadAlarms();
     },
@@ -3983,13 +3905,21 @@ async function sendHighFive(friendId, friendName) {
 // Accept friend request
 async function acceptFriendReq(requestId) {
   try {
-    const { error } = await db.from('friends').update({ status: 'accepted' }).eq('id', requestId);
-    if (error) {
-      toast('Could not accept request: ' + error.message, 'error');
-    } else {
-      toast('Friend request accepted!', 'success');
-      loadFriendsReal();
+    // Attempt via safe RPC first (bypasses RLS constraint issues for receivers)
+    const { error: rpcError } = await db.rpc('accept_friend_request', { request_id: requestId });
+    
+    if (rpcError) {
+      console.warn('RPC accept_friend_request failed, trying fallback table update:', rpcError.message);
+      // Fallback: direct table update (depends on correct friends RLS policies)
+      const { error } = await db.from('friends').update({ status: 'accepted' }).eq('id', requestId);
+      if (error) {
+        toast('Could not accept request: ' + error.message, 'error');
+        return;
+      }
     }
+    
+    toast('Friend request accepted!', 'success');
+    loadFriendsReal();
   } catch (err) {
     console.warn(err);
   }
@@ -3998,13 +3928,21 @@ async function acceptFriendReq(requestId) {
 // Decline/delete friend request
 async function declineFriendReq(requestId) {
   try {
-    const { error } = await db.from('friends').delete().eq('id', requestId);
-    if (error) {
-      toast('Could not decline request: ' + error.message, 'error');
-    } else {
-      toast('Friend request declined.', 'info');
-      loadFriendsReal();
+    // Attempt via safe RPC first (bypasses RLS issues)
+    const { error: rpcError } = await db.rpc('decline_friend_request', { request_id: requestId });
+    
+    if (rpcError) {
+      console.warn('RPC decline_friend_request failed, trying fallback table delete:', rpcError.message);
+      // Fallback: direct table delete
+      const { error } = await db.from('friends').delete().eq('id', requestId);
+      if (error) {
+        toast('Could not decline request: ' + error.message, 'error');
+        return;
+      }
     }
+    
+    toast('Friend request declined.', 'info');
+    loadFriendsReal();
   } catch (err) {
     console.warn(err);
   }
@@ -4381,7 +4319,7 @@ window.loadAdminPanel = async function() {
     const [profilesCount, focusSessions, feedbackList] = await Promise.all([
       db.from('profiles').select('id', { count: 'exact', head: true }),
       db.from('focus_sessions').select('duration_mins'),
-      db.from('feedback').select('rating, comment')
+      db.from('feedback').select('id, rating, comment, created_at')
     ]);
 
     // Render Metrics
@@ -4413,13 +4351,33 @@ window.loadAdminPanel = async function() {
 
     if (error) {
       console.warn('RPC get_admin_overview error:', error.message);
-      document.getElementById('admin-table-body').innerHTML = `<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text3)">Error loading user overview: ${error.message}</td></tr>`;
+      document.getElementById('admin-table-body').innerHTML = `<tr><td colspan="10" style="text-align:center;padding:30px;color:var(--text3)">Error loading user overview: ${error.message}</td></tr>`;
     } else if (userOverview) {
       const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
       const { data: adminPres } = await db.from('user_presence').select('user_id').gte('last_seen', fiveMinsAgo);
       const adminActiveMap = {};
       if (adminPres) adminPres.forEach(p => adminActiveMap[p.user_id] = true);
-      userOverview.forEach(u => u.isOnline = !!adminActiveMap[u.id]);
+      
+      let onlineCount = 0;
+      let aggregateAlarms = 0;
+      let aggregatePlans = 0;
+
+      userOverview.forEach(u => {
+        u.isOnline = !!adminActiveMap[u.id];
+        if (u.isOnline) onlineCount++;
+        aggregateAlarms += (u.total_alarms || 0);
+        aggregatePlans += (u.total_plans || 0);
+      });
+
+      // Update stats cards
+      const onlineEl = document.getElementById('admin-online-users');
+      if (onlineEl) onlineEl.textContent = onlineCount;
+
+      const alarmsEl = document.getElementById('admin-total-alarms');
+      if (alarmsEl) alarmsEl.textContent = aggregateAlarms;
+
+      const plansEl = document.getElementById('admin-total-plans');
+      if (plansEl) plansEl.textContent = aggregatePlans;
 
       window.adminUsersList = userOverview;
       renderAdminUsersTable(userOverview);
@@ -4428,7 +4386,7 @@ window.loadAdminPanel = async function() {
     // Load feedback listings
     const { data: feedBackWithUser } = await db
       .from('feedback')
-      .select('rating, comment, created_at, profiles(username)')
+      .select('id, rating, comment, created_at, profiles(username)')
       .order('created_at', { ascending: false });
 
     const feedListContainer = document.getElementById('admin-feedback-list');
@@ -4443,7 +4401,10 @@ window.loadAdminPanel = async function() {
           const authorInitial = author.charAt(0).toUpperCase();
 
           return `
-            <div class="feedback-card">
+            <div class="feedback-card" style="position:relative">
+              <button onclick="adminDeleteFeedback('${fb.id}')" title="Delete Review" style="position:absolute;top:14px;right:14px;background:none;border:none;color:var(--red);cursor:pointer;font-size:0.85rem">
+                <i class="fa fa-trash"></i>
+              </button>
               <div class="feedback-header">
                 <div class="feedback-user-info">
                   <div class="feedback-avatar">${authorInitial}</div>
@@ -4452,7 +4413,7 @@ window.loadAdminPanel = async function() {
                     <div class="feedback-date">${dateStr}</div>
                   </div>
                 </div>
-                <div class="feedback-rating-stars">${starsHtml}</div>
+                <div class="feedback-rating-stars" style="margin-right:24px">${starsHtml}</div>
               </div>
               ${fb.comment ? `<p class="feedback-comment-text">${escHtml(fb.comment)}</p>` : '<p class="feedback-comment-text" style="font-style:italic;color:var(--text3)">No comment left</p>'}
             </div>`;
@@ -4470,7 +4431,7 @@ function renderAdminUsersTable(users) {
   if (!tbody) return;
 
   if (users.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text3)">No matching users found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:30px;color:var(--text3)">No matching users found</td></tr>';
     return;
   }
 
@@ -4482,6 +4443,7 @@ function renderAdminUsersTable(users) {
     const adminTag = u.is_admin ? '<span style="color:var(--accent);font-size:.7rem;font-weight:700;margin-left:5px">[ADMIN]</span>' : '';
     const curStreak = u.current_streak || 0;
     const bestStreak = u.longest_streak || 0;
+    const isSelf = u.id === currentUserId;
 
     return `
       <tr>
@@ -4499,12 +4461,24 @@ function renderAdminUsersTable(users) {
         </td>
         <td>${escHtml(u.email || '—')}</td>
         <td>${joined}</td>
-        <td>${u.total_sessions || 0}</td>
-        <td>${focusHrs}h</td>
+        <td style="text-align:center;font-weight:600;color:var(--accent2)">${u.total_alarms || 0}</td>
+        <td style="text-align:center;font-weight:600;color:var(--blue)">${u.total_plans || 0}</td>
+        <td style="text-align:center">${u.total_sessions || 0}</td>
+        <td style="text-align:center">${focusHrs}h</td>
         <td><span style="color:var(--accent);font-weight:600">🔥 ${curStreak}</span> <span style="color:var(--text3);font-size:.75rem">(Best: ${bestStreak})</span></td>
         <td>${lastActive}</td>
-        <td style="text-align:right">
-          <button onclick="showUserProfile('${u.id}')" class="btn-outline-sm" style="padding:4px 8px;font-size:0.75rem"><i class="fa fa-eye"></i> Profile</button>
+        <td>
+          <div style="display:flex;gap:6px;justify-content:flex-end">
+            <button onclick="showUserProfile('${u.id}')" class="btn-outline-sm" title="View Profile" style="padding:4px 8px;font-size:0.75rem">
+              <i class="fa fa-eye"></i> View
+            </button>
+            <button onclick="adminToggleUserRole('${u.id}', '${escHtml(u.username)}')" class="btn-outline-sm" title="${u.is_admin ? 'Demote Admin' : 'Promote Admin'}" style="padding:4px 8px;font-size:0.75rem;color:${u.is_admin ? 'var(--red)' : 'var(--green)'}" ${isSelf ? 'disabled style="opacity:0.5;pointer-events:none"' : ''}>
+              <i class="fa ${u.is_admin ? 'fa-user-minus' : 'fa-user-shield'}"></i> Admin
+            </button>
+            <button onclick="adminResetUserStreak('${u.id}', '${escHtml(u.username)}')" class="btn-outline-sm" title="Reset Streak to 0" style="padding:4px 8px;font-size:0.75rem;color:var(--accent)">
+              <i class="fa fa-sync-alt"></i> Reset
+            </button>
+          </div>
         </td>
       </tr>`;
   }).join('');
@@ -4524,6 +4498,59 @@ window.filterAdminTable = function() {
   });
 
   renderAdminUsersTable(filtered);
+};
+
+// ── Admin Operational Actions ──
+window.adminToggleUserRole = async function(targetUserId, username) {
+  if (targetUserId === currentUserId) {
+    toast('You cannot toggle your own admin status.', 'warning');
+    return;
+  }
+  if (!confirm(`Are you sure you want to toggle the Admin status of "${username}"?`)) return;
+
+  try {
+    const { data, error } = await db.rpc('admin_toggle_user_role', { target_user_id: targetUserId });
+    if (error) {
+      toast('Failed to change role: ' + error.message, 'error');
+    } else {
+      toast(`Admin status toggled for "${username}".`, 'success');
+      loadAdminPanel();
+    }
+  } catch (err) {
+    toast('Error toggling role: ' + err.message, 'error');
+  }
+};
+
+window.adminResetUserStreak = async function(targetUserId, username) {
+  if (!confirm(`Are you sure you want to reset the streak of "${username}" to 0? This cannot be undone.`)) return;
+
+  try {
+    const { data, error } = await db.rpc('admin_reset_user_streak', { target_user_id: targetUserId });
+    if (error) {
+      toast('Failed to reset streak: ' + error.message, 'error');
+    } else {
+      toast(`Streak reset to 0 for "${username}".`, 'success');
+      loadAdminPanel();
+    }
+  } catch (err) {
+    toast('Error resetting streak: ' + err.message, 'error');
+  }
+};
+
+window.adminDeleteFeedback = async function(feedbackId) {
+  if (!confirm('Are you sure you want to delete this feedback review? This cannot be undone.')) return;
+
+  try {
+    const { data, error } = await db.rpc('admin_delete_feedback', { target_feedback_id: feedbackId });
+    if (error) {
+      toast('Failed to delete feedback: ' + error.message, 'error');
+    } else {
+      toast('Feedback deleted successfully.', 'success');
+      loadAdminPanel();
+    }
+  } catch (err) {
+    toast('Error deleting feedback: ' + err.message, 'error');
+  }
 };
 
 

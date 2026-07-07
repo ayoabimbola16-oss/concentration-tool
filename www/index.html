@@ -168,6 +168,13 @@
           </div>
           <button class="fab-btn" onclick="openAlarmModal(null)" type="button"><i class="fa fa-plus"></i> <span>New Alarm</span></button>
         </div>
+
+        <!-- Platform Background Alarm Support Warning Banner -->
+        <div id="alarm-platform-warning" class="alarm-warning-banner" style="display:none;">
+          <i class="fa fa-exclamation-triangle"></i>
+          <span><strong>Notice:</strong> Your browser does not support exact background alarms when closed. Keep the app open/active for alarms to ring.</span>
+        </div>
+
         <div id="alarms-grid" class="cards-grid"></div>
         <div id="alarms-empty" class="empty-state">
           <i class="fa fa-bell-slash"></i>
@@ -484,6 +491,11 @@
             <div class="admin-stat-lbl">Total Users</div>
           </div>
           <div class="admin-stat-card">
+            <div class="admin-stat-icon" style="background:rgba(46,204,113,.15);color:var(--green)"><i class="fa fa-globe"></i></div>
+            <div class="admin-stat-val" id="admin-online-users">—</div>
+            <div class="admin-stat-lbl">Online Now</div>
+          </div>
+          <div class="admin-stat-card">
             <div class="admin-stat-icon" style="background:rgba(39,174,96,.15);color:var(--green)"><i class="fa fa-hourglass-half"></i></div>
             <div class="admin-stat-val" id="admin-total-focus">—</div>
             <div class="admin-stat-lbl">Total Focus Hours</div>
@@ -503,6 +515,16 @@
             <div class="admin-stat-val" id="admin-avg-streak">—</div>
             <div class="admin-stat-lbl">Avg Streak</div>
           </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-icon" style="background:rgba(241,196,15,.15);color:#f1c40f"><i class="fa fa-bell"></i></div>
+            <div class="admin-stat-val" id="admin-total-alarms">—</div>
+            <div class="admin-stat-lbl">Total Alarms</div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-icon" style="background:rgba(52,152,219,.15);color:#3498db"><i class="fa fa-calendar-alt"></i></div>
+            <div class="admin-stat-val" id="admin-total-plans">—</div>
+            <div class="admin-stat-lbl">Total Plans</div>
+          </div>
         </div>
 
         <!-- Search bar -->
@@ -516,11 +538,12 @@
             <thead>
               <tr>
                 <th>User</th><th>Email</th><th>Joined</th>
-                <th>Sessions</th><th>Focus Hrs</th><th>Streak</th><th>Last Active</th><th></th>
+                <th>Alarms</th><th>Plans</th><th>Sessions</th>
+                <th>Focus Hrs</th><th>Streak</th><th>Last Active</th><th>Actions</th>
               </tr>
             </thead>
             <tbody id="admin-table-body">
-              <tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text3)">Loading...</td></tr>
+              <tr><td colspan="10" style="text-align:center;padding:30px;color:var(--text3)">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1129,8 +1152,9 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="config.js?v=15"></script>
-<script src="offline.js?v=15"></script>
-<script src="app.js?v=15"></script>
+<script src="config.js?v=16"></script>
+<script src="alarm-service.js?v=16"></script>
+<script src="offline.js?v=16"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>

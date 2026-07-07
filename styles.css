@@ -3037,3 +3037,25 @@ body {
   .chat-window.mobile-open { display: flex; position: fixed; inset: 60px 0 0 0; z-index: 200; }
   .chat-back-btn { display: flex; }
 }
+
+/* Alarm Warning Banner */
+.alarm-warning-banner {
+  background: rgba(231, 76, 60, 0.12);
+  border: 1px solid rgba(231, 76, 60, 0.4);
+  color: #f5b0b0;
+  border-radius: 12px;
+  padding: 12px 18px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.85rem;
+  font-family: 'DM Sans', sans-serif;
+  line-height: 1.4;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+.alarm-warning-banner i {
+  color: #e74c3c;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
