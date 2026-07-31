@@ -3059,3 +3059,63 @@ body {
   font-size: 1.2rem;
   flex-shrink: 0;
 }
+
+/* ── FLOATING AI CO-PILOT FAB ── */
+.ai-fab-btn {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #9b59b6, #3498db, #f1c40f);
+  background-size: 200% 200%;
+  animation: aiGradient 4s ease infinite;
+  border: none;
+  color: #fff;
+  font-size: 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1000;
+  box-shadow: 0 8px 25px rgba(155, 89, 182, 0.45);
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.ai-fab-btn:hover {
+  transform: scale(1.1) rotate(5deg);
+  box-shadow: 0 12px 30px rgba(155, 89, 182, 0.65);
+}
+.ai-fab-btn:active {
+  transform: scale(0.95);
+}
+.ai-fab-pulse {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 215, 0, 0.6);
+  animation: fabPulse 2s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+  pointer-events: none;
+}
+@keyframes aiGradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+@keyframes fabPulse {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.25); opacity: 0; }
+  100% { transform: scale(0.95); opacity: 0; }
+}
+
+/* ── PRICING CARD & PRO STYLES ── */
+.pricing-card {
+  transition: all 0.25s ease;
+}
+.pricing-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 215, 0, 0.5) !important;
+}
+.pricing-card.active-plan {
+  box-shadow: 0 0 25px rgba(255, 215, 0, 0.18);
+}

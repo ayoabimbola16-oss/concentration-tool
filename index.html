@@ -105,6 +105,9 @@
       <div class="tb-logo"><img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" class="tb-logo-img" alt="Logo"/> PlanTrack</div>
     </div>
     <div class="tb-right">
+      <div class="pro-trial-chip" id="pro-trial-chip" onclick="openProModal()" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;background:linear-gradient(135deg,rgba(255,215,0,0.15),rgba(255,165,0,0.25));border:1px solid rgba(255,215,0,0.4);color:#ffd700;font-size:0.78rem;font-weight:600;cursor:pointer;margin-right:8px;" title="PlanTrack PRO Status">
+        <i class="fa fa-crown"></i><span id="pro-trial-text">7 Days Trial</span>
+      </div>
       <button class="profile-btn" onclick="showSection('profile')" type="button" title="My Profile">
         <div class="tb-avatar" id="topbar-avatar-display"></div>
         <span id="disp-user" class="profile-name"></span>
@@ -135,7 +138,11 @@
       </button>
       <button class="nav-btn" id="nav-focustimer" onclick="showSection('focustimer')" type="button">
         <i class="fa fa-hourglass-half"></i><span>Focus Timer</span>
-      </button>      <button class="nav-btn" id="nav-chats" onclick="showSection('chats')" type="button">
+      </button>
+      <button class="nav-btn" id="nav-ai" onclick="openAICoPilot()" type="button">
+        <i class="fa fa-wand-magic-sparkles" style="color:#ffd700"></i><span style="color:#ffd700;font-weight:600">AI Co-Pilot</span>
+      </button>
+      <button class="nav-btn" id="nav-chats" onclick="showSection('chats')" type="button">
         <i class="fa fa-comments"></i><span>Chats</span>
         <span class="chat-unread-badge" id="chat-unread-badge" style="display:none">0</span>
       </button>
@@ -1144,6 +1151,105 @@
     <button class="btn-save" onclick="dismissStreakSplash()" style="min-width:140px;justify-content:center;margin-top:20px">
       <i class="fa fa-fire"></i> Let's Go!
     </button>
+  </div>
+</div>
+
+<!-- FLOATING AI CO-PILOT WIDGET -->
+<button class="ai-fab-btn" id="ai-fab-btn" onclick="openAICoPilot()" type="button" title="PlanTrack AI Activity Co-Pilot">
+  <i class="fa fa-wand-magic-sparkles"></i>
+  <span class="ai-fab-pulse"></span>
+</button>
+
+<!-- AI ACTIVITY CO-PILOT MODAL -->
+<div id="modal-ai-copilot" class="overlay" style="display:none">
+  <div class="modal modal-wide" style="max-width:680px">
+    <div class="mh" style="background:linear-gradient(135deg,rgba(155,89,182,0.25),rgba(52,152,219,0.25))">
+      <h2><i class="fa fa-wand-magic-sparkles" style="color:#ffd700"></i> PlanTrack AI Co-Pilot</h2>
+      <button class="mclose" onclick="closeModal('modal-ai-copilot')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb">
+      <!-- Activity Context Summary -->
+      <div id="ai-context-banner" class="ai-context-card" style="background:rgba(255,255,255,0.04);border-radius:12px;padding:16px;border:1px solid rgba(255,255,255,0.08);margin-bottom:16px;">
+        <div style="font-size:0.85rem;color:var(--accent);font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+          <i class="fa fa-chart-line"></i> Real-time Activity Context
+        </div>
+        <p id="ai-context-text" style="font-size:0.9rem;color:var(--text);margin:0;line-height:1.5">Analyzing your focus sessions, timetables, and plans...</p>
+      </div>
+
+      <!-- Quick AI Action Prompts -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+        <button class="timer-chip" onclick="askAICoPilot('generate_timetable')" type="button"><i class="fa fa-calendar-plus"></i> Generate Work/Study Timetable</button>
+        <button class="timer-chip" onclick="askAICoPilot('breakdown_tasks')" type="button"><i class="fa fa-list-check"></i> Break Plan into Micro-tasks</button>
+        <button class="timer-chip" onclick="askAICoPilot('reschedule_gaps')" type="button"><i class="fa fa-clock-rotate-left"></i> Reschedule Missed Activities</button>
+        <button class="timer-chip" onclick="askAICoPilot('focus_advice')" type="button"><i class="fa fa-brain"></i> Get Focus & Burnout Advice</button>
+      </div>
+
+      <!-- AI Response & Action Execution Container -->
+      <div id="ai-response-area" style="background:rgba(0,0,0,0.25);border-radius:12px;padding:18px;min-height:160px;max-height:300px;overflow-y:auto;font-size:0.92rem;line-height:1.6;color:var(--text);border:1px solid rgba(255,255,255,0.06)">
+        <div style="color:var(--text3);text-align:center;padding:30px">
+          <i class="fa fa-robot" style="font-size:2rem;margin-bottom:10px;display:block;color:var(--accent)"></i>
+          Hi! I'm your PlanTrack AI Co-Pilot. Click any button above or type what you need help with based on your daily activities!
+        </div>
+      </div>
+
+      <!-- AI Prompt Input -->
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <input type="text" id="ai-prompt-input" placeholder="Ask AI anything about your plans, schedule, or tasks..." style="flex:1;padding:12px 16px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:var(--text)" onkeydown="if(event.key==='Enter')submitCustomAIPrompt()"/>
+        <button class="btn-save" onclick="submitCustomAIPrompt()" type="button" style="padding:0 20px"><i class="fa fa-paper-plane"></i> Send</button>
+      </div>
+    </div>
+    <div class="mf" style="justify-content:space-between;align-items:center">
+      <div style="font-size:0.8rem;color:var(--text3)"><i class="fa fa-crown" style="color:#ffd700"></i> PlanTrack PRO Co-Pilot</div>
+      <button class="btn-cancel" onclick="closeModal('modal-ai-copilot')" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- PLANTRACK PRO SUBSCRIPTION MODAL -->
+<div id="modal-pro-pricing" class="overlay" style="display:none">
+  <div class="modal modal-wide" style="max-width:600px">
+    <div class="mh" style="background:linear-gradient(135deg,rgba(255,215,0,0.25),rgba(230,126,34,0.2))">
+      <h2><i class="fa fa-crown" style="color:#ffd700"></i> PlanTrack PRO</h2>
+      <button class="mclose" onclick="closeModal('modal-pro-pricing')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb" style="text-align:center;padding:24px 16px">
+      <div class="pro-badge-header" style="display:inline-block;padding:6px 16px;border-radius:20px;background:rgba(255,215,0,0.15);border:1px solid rgba(255,215,0,0.4);color:#ffd700;font-weight:700;font-size:0.85rem;margin-bottom:12px">
+        ✨ 7 DAYS FREE UNLIMITED TRIAL FOR NEW ACCOUNTS
+      </div>
+      <h2 style="font-size:1.8rem;margin-bottom:8px;font-family:'Playfair Display',serif">Unlock Your Superpowers</h2>
+      <p style="color:var(--text2);max-width:440px;margin:0 auto 24px auto;font-size:0.95rem">Empower your deep work, auto-schedule tasks, and beat distractions with PlanTrack PRO.</p>
+
+      <!-- Pricing Options Cards -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+        <div class="pricing-card" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:20px;text-align:center;position:relative;cursor:pointer" onclick="selectPricingTier('monthly')">
+          <div style="font-size:0.85rem;color:var(--text3);font-weight:600">MONTHLY</div>
+          <div style="font-size:2rem;font-weight:700;color:var(--accent);margin:8px 0">$0.50<span style="font-size:0.85rem;color:var(--text3)">/mo</span></div>
+          <p style="font-size:0.78rem;color:var(--text2);margin:0">Billed monthly after 7-day trial</p>
+        </div>
+
+        <div class="pricing-card active-plan" style="background:linear-gradient(135deg,rgba(255,215,0,0.12),rgba(255,140,0,0.08));border:2px solid #ffd700;border-radius:14px;padding:20px;text-align:center;position:relative;cursor:pointer" onclick="selectPricingTier('yearly')">
+          <div style="position:absolute;top:-10px;right:10px;background:#ffd700;color:#000;font-size:0.7rem;font-weight:800;padding:2px 8px;border-radius:10px">BEST VALUE</div>
+          <div style="font-size:0.85rem;color:#ffd700;font-weight:600">ANNUAL</div>
+          <div style="font-size:2rem;font-weight:700;color:#ffd700;margin:8px 0">$5.00<span style="font-size:0.85rem;color:var(--text3)">/yr</span></div>
+          <p style="font-size:0.78rem;color:var(--text2);margin:0">Save 17% • Just $0.41/month</p>
+        </div>
+      </div>
+
+      <!-- Included Features List -->
+      <div style="text-align:left;background:rgba(255,255,255,0.02);border-radius:12px;padding:16px;margin-bottom:24px">
+        <div style="font-size:0.85rem;font-weight:700;color:var(--accent);margin-bottom:10px"><i class="fa fa-star"></i> Included in PlanTrack PRO:</div>
+        <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;font-size:0.88rem;color:var(--text)">
+          <li><i class="fa fa-check" style="color:#2ecc71;margin-right:8px"></i> 🤖 <strong>Context-Aware Activity AI Co-Pilot</strong> (Auto-Schedule & Task Decomposer)</li>
+          <li><i class="fa fa-check" style="color:#2ecc71;margin-right:8px"></i> 🎧 <strong>Neural Soundscapes</strong> (Binaural Beats, Rain, Brown Noise)</li>
+          <li><i class="fa fa-check" style="color:#2ecc71;margin-right:8px"></i> 📊 <strong>Advanced Focus Analytics & Heatmaps</strong></li>
+          <li><i class="fa fa-check" style="color:#2ecc71;margin-right:8px"></i> 🛡️ <strong>Streak Recovery Shield</strong> (Protect your hard-earned streak)</li>
+        </ul>
+      </div>
+
+      <button class="btn-save" onclick="activateProSubscription()" type="button" style="width:100%;justify-content:center;padding:14px;font-size:1.05rem;border-radius:12px;background:linear-gradient(135deg,#f39c12,#e67e22)">
+        <i class="fa fa-crown"></i> Activate PRO Access ($0.50/mo)
+      </button>
+    </div>
   </div>
 </div>
 

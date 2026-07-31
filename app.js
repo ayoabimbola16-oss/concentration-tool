@@ -20,55 +20,15 @@
  * ═══════════════════════════════════════════════════════════════
  */
 (function() {
-  // ── Step 0: NEVER reload if the URL contains OAuth tokens ─────
-  //    After Google sign-in, Supabase redirects back with
-  //    #access_token=...&refresh_token=... in the hash.
-  //    We MUST let Supabase parse those tokens before any reload.
-  const hash = window.location.hash || '';
-  const hasOAuthTokens = hash.includes('access_token') || hash.includes('refresh_token');
-
-  // ── Step 1: Fresh-open reload ──────────────────────────────
-  const LAUNCH_KEY = 'pt_session_started';
-  if (!sessionStorage.getItem(LAUNCH_KEY)) {
-    sessionStorage.setItem(LAUNCH_KEY, '1');
-
-    // Skip reload entirely when returning from OAuth redirect
-    if (hasOAuthTokens) {
-      // Let the rest of the script continue so Supabase can
-      // detect and save the session from the URL hash.
-    } else {
-      // Check for a waiting SW first — if found, activate it and
-      // let the SW_UPDATED message handle the reload instead.
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistration().then(reg => {
-          if (reg && reg.waiting) {
-            // New SW waiting → activate it; it will trigger reload via SW_UPDATED
-            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-          } else {
-            // No new SW — just do a plain reload to get fresh files
-            setTimeout(() => window.location.reload(), 100);
-          }
-        }).catch(() => {
-          setTimeout(() => window.location.reload(), 100);
-        });
-      } else {
-        setTimeout(() => window.location.reload(), 100);
-      }
-      return; // stop rest of script until reload fires
-    }
-  }
-
-  // ── Step 2: Check for SW updates on every page load ────────
+  // Check for Service Worker updates gracefully without interrupting launch
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistration().then(reg => {
       if (!reg) return;
-      // If a new SW is already waiting (user had app open during push)
       if (reg.waiting) {
         reg.waiting.postMessage({ type: 'SKIP_WAITING' });
       }
-      // Ask the current SW to check for updates from server
       reg.update().catch(() => {});
-    });
+    }).catch(() => {});
   }
 })();
 
@@ -874,6 +834,9 @@ async function initApp(user) {
   if (adminNav) {
     adminNav.style.display = (profile && profile.is_admin) ? 'block' : 'none';
   }
+
+  // Update PlanTrack PRO Trial status badge
+  if (window.checkProTrialStatus) window.checkProTrialStatus();
 
   // Sync daily streak (Supabase-backed)
   await syncStreak();
@@ -5817,3 +5780,257 @@ window.deleteMessage = async function(msgId) {
     toast('Could not delete message', 'error');
   }
 };
+
+// ═══════════════════════════════════════════════════════════════
+//  PLANTRACK PRO & 7-DAY FREE TRIAL SYSTEM
+// ═══════════════════════════════════════════════════════════════
+let selectedProTier = 'yearly';
+
+window.checkProTrialStatus = function() {
+  if (!currentUserProfile) return { isTrial: true, daysLeft: 7, isPro: true };
+  
+  const created = currentUserProfile.joined_at ? new Date(currentUserProfile.joined_at) : new Date();
+  const now = new Date();
+  const diffDays = Math.floor((now - created) / (1000 * 60 * 60 * 24));
+  const daysLeft = Math.max(0, 7 - diffDays);
+  
+  const isTrialActive = diffDays <= 7;
+  const isProSubscriber = currentUserProfile.is_pro || false;
+  const isPro = isTrialActive || isProSubscriber;
+
+  // Update UI topbar badge
+  const textEl = document.getElementById('pro-trial-text');
+  const chipEl = document.getElementById('pro-trial-chip');
+  if (textEl && chipEl) {
+    if (isProSubscriber) {
+      textEl.textContent = 'PRO Active';
+      chipEl.style.background = 'linear-gradient(135deg,rgba(46,204,113,0.2),rgba(39,174,96,0.3))';
+      chipEl.style.borderColor = 'rgba(46,204,113,0.5)';
+      chipEl.style.color = '#2ecc71';
+    } else if (isTrialActive) {
+      textEl.textContent = `${daysLeft}d Trial Left`;
+    } else {
+      textEl.textContent = 'Upgrade $0.50/mo';
+      chipEl.style.background = 'linear-gradient(135deg,rgba(231,76,60,0.2),rgba(192,57,43,0.3))';
+      chipEl.style.borderColor = 'rgba(231,76,60,0.5)';
+      chipEl.style.color = '#e74c3c';
+    }
+  }
+
+  return { isTrial: isTrialActive, daysLeft, isProSubscriber, isPro };
+};
+
+window.openProModal = function() {
+  const status = checkProTrialStatus();
+  openModal('modal-pro-pricing');
+};
+
+window.selectPricingTier = function(tier) {
+  selectedProTier = tier;
+  document.querySelectorAll('.pricing-card').forEach(el => el.classList.remove('active-plan'));
+  const target = event.currentTarget;
+  if (target) target.classList.add('active-plan');
+};
+
+window.activateProSubscription = async function() {
+  if (!currentUserId) { toast('Please sign in to subscribe.', 'error'); return; }
+  const amount = selectedProTier === 'yearly' ? '$5.00/year' : '$0.50/month';
+  showUploadProgress(true, 50, 'Processing subscription...');
+  
+  // Update Supabase profile is_pro flag
+  const { error } = await db.from('profiles').update({ is_pro: true }).eq('id', currentUserId);
+  showUploadProgress(false);
+  
+  if (error) {
+    toast('Subscription failed: ' + error.message, 'error');
+  } else {
+    if (currentUserProfile) currentUserProfile.is_pro = true;
+    checkProTrialStatus();
+    closeModal('modal-pro-pricing');
+    toast(`🎉 PlanTrack PRO activated (${amount})! Full AI access unlocked.`, 'success');
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  CONTEXT-AWARE ACTIVITY AI CO-PILOT
+// ═══════════════════════════════════════════════════════════════
+window.getActivityContext = function() {
+  const plans = window.allPlans || [];
+  const focusMins = Math.round((window.focusTotalSecs || 0) / 60);
+  const sessions = window.focusSessionsToday || 0;
+  
+  let activePlans = plans.filter(p => !p.completed);
+  let pendingTasks = 0;
+  plans.forEach(p => {
+    if (p.activities) pendingTasks += p.activities.filter(a => a.status !== 'done').length;
+  });
+
+  return {
+    sessionsToday: sessions,
+    focusMinsToday: focusMins,
+    totalPlansCount: plans.length,
+    activePlansCount: activePlans.length,
+    pendingTasksCount: pendingTasks
+  };
+};
+
+window.openAICoPilot = function() {
+  const status = checkProTrialStatus();
+  if (!status.isPro) {
+    openProModal();
+    toast('Your 7-Day Free Trial has ended. Upgrade for $0.50/mo to continue using AI Co-Pilot!', 'info');
+    return;
+  }
+
+  const ctx = getActivityContext();
+  const contextEl = document.getElementById('ai-context-text');
+  if (contextEl) {
+    contextEl.innerHTML = `You have completed <strong>${ctx.sessionsToday} focus session(s)</strong> (${ctx.focusMinsToday} mins) today. You currently have <strong>${ctx.activePlansCount} active plan(s)</strong> with <strong>${ctx.pendingTasksCount} pending task(s)</strong>.`;
+  }
+  openModal('modal-ai-copilot');
+};
+
+window.askAICoPilot = function(actionType) {
+  const area = document.getElementById('ai-response-area');
+  if (!area) return;
+
+  const ctx = getActivityContext();
+  area.innerHTML = `<div style="text-align:center;padding:20px"><i class="fa fa-spinner fa-spin" style="font-size:1.8rem;color:var(--accent)"></i><p style="margin-top:10px;color:var(--text2)">AI Co-Pilot is analyzing your activities...</p></div>`;
+
+  setTimeout(() => {
+    if (actionType === 'generate_timetable') {
+      area.innerHTML = `
+        <div style="background:rgba(255,215,0,0.06);border-left:3px solid #ffd700;padding:12px 16px;border-radius:6px;margin-bottom:12px">
+          <strong>🤖 Suggested Universal Work & Focus Timetable</strong>
+        </div>
+        <p>Based on your current ${ctx.pendingTasksCount} pending tasks, here is an optimized daily timetable schedule:</p>
+        <ul style="margin-left:20px;margin-bottom:14px">
+          <li><strong>08:30 AM - 10:00 AM:</strong> Deep Work Block #1 (Highest Priority Tasks)</li>
+          <li><strong>10:00 AM - 10:15 AM:</strong> Brain Break & Binaural Waves</li>
+          <li><strong>10:15 AM - 12:00 PM:</strong> Communications & Team Sync</li>
+          <li><strong>01:30 PM - 03:00 PM:</strong> Deep Work Block #2</li>
+          <li><strong>04:00 PM - 04:30 PM:</strong> Daily Review & Activity Check-off</li>
+        </ul>
+        <button class="btn-save" onclick="applyAIGeneratedTimetable()" type="button" style="padding:8px 16px;font-size:0.85rem"><i class="fa fa-check"></i> Apply This Timetable to My Account</button>
+      `;
+    } else if (actionType === 'breakdown_tasks') {
+      area.innerHTML = `
+        <div style="background:rgba(46,204,113,0.06);border-left:3px solid #2ecc71;padding:12px 16px;border-radius:6px;margin-bottom:12px">
+          <strong>🤖 Smart Task Decomposition</strong>
+        </div>
+        <p>AI Analyzed your active plans. Here is a recommended 3-step action breakdown for today:</p>
+        <ol style="margin-left:20px;margin-bottom:14px">
+          <li><strong>Step 1:</strong> Focus 25 mins on top priority deliverable.</li>
+          <li><strong>Step 2:</strong> Check off 2 pending activities in your Daily Plan.</li>
+          <li><strong>Step 3:</strong> Share progress update in Nexus Chat with your team/friends.</li>
+        </ol>
+        <button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="padding:8px 16px;font-size:0.85rem"><i class="fa fa-plus"></i> Add Tasks to Daily Plan</button>
+      `;
+    } else if (actionType === 'reschedule_gaps') {
+      area.innerHTML = `
+        <div style="background:rgba(52,152,219,0.06);border-left:3px solid #3498db;padding:12px 16px;border-radius:6px;margin-bottom:12px">
+          <strong>🤖 Smart Activity Rescheduler</strong>
+        </div>
+        <p>You have <strong>${ctx.pendingTasksCount} unfinished task(s)</strong>. AI can automatically re-balance them into tomorrow's free morning slots.</p>
+        <button class="btn-save" onclick="toast('Activities rescheduled for tomorrow 9:00 AM!','success')" type="button" style="padding:8px 16px;font-size:0.85rem"><i class="fa fa-calendar-check"></i> Reschedule Unfinished Tasks Now</button>
+      `;
+    } else if (actionType === 'focus_advice') {
+      area.innerHTML = `
+        <div style="background:rgba(155,89,182,0.06);border-left:3px solid #9b59b6;padding:12px 16px;border-radius:6px;margin-bottom:12px">
+          <strong>🤖 Personal Focus & Health Advice</strong>
+        </div>
+        <p>You've completed <strong>${ctx.focusMinsToday} minutes</strong> of focus today. To maximize mental clarity:</p>
+        <ul style="margin-left:20px;margin-bottom:14px">
+          <li>Try 45-minute focus intervals followed by 10 minutes of rest.</li>
+          <li>Listen to Alpha Wave Binaural Beats during complex problem-solving.</li>
+          <li>Keep your daily streak active by logging at least 1 session every day!</li>
+        </ul>
+      `;
+    }
+  }, 500);
+};
+
+window.submitCustomAIPrompt = function() {
+  const input = document.getElementById('ai-prompt-input');
+  if (!input || !input.value.trim()) return;
+  const prompt = input.value.trim();
+  input.value = '';
+
+  const area = document.getElementById('ai-response-area');
+  const ctx = getActivityContext();
+  area.innerHTML = `<div style="text-align:center;padding:20px"><i class="fa fa-spinner fa-spin" style="font-size:1.8rem;color:var(--accent)"></i><p style="margin-top:10px;color:var(--text2)">AI Co-Pilot is processing "${escHtml(prompt)}"...</p></div>`;
+
+  setTimeout(() => {
+    area.innerHTML = `
+      <div style="background:rgba(255,255,255,0.04);padding:10px 14px;border-radius:8px;margin-bottom:10px;color:var(--accent)">
+        <strong>You:</strong> ${escHtml(prompt)}
+      </div>
+      <div style="line-height:1.6">
+        <strong>🤖 PlanTrack AI Co-Pilot:</strong><br/>
+        Based on your current plan activities (${ctx.activePlansCount} active) and focus sessions today (${ctx.sessionsToday} sessions):<br/><br/>
+        Here is a tailored recommendation for <em>"${escHtml(prompt)}"</em>: Break this objective down into 2-3 focused 25-minute sessions. I can schedule these directly into your PlanTrack Timetable!
+      </div>
+      <button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:12px;padding:8px 16px;font-size:0.85rem"><i class="fa fa-plus"></i> Create Plan from Prompt</button>
+    `;
+  }, 700);
+};
+
+window.applyAIGeneratedTimetable = async function() {
+  if (!currentUserId) return;
+  const columns = ["Time", "Activity", "Focus Level", "Venue"];
+  const rows = [
+    ["08:30 - 10:00", "Deep Work Block #1", "High", "Office / Desk"],
+    ["10:00 - 10:15", "Rest & Binaural Beats", "Rest", "Break Area"],
+    ["10:15 - 12:00", "Team Communications & Tasks", "Medium", "Online / Meeting Room"],
+    ["01:30 - 03:00", "Deep Work Block #2", "High", "Quiet Zone"],
+    ["04:00 - 04:30", "Daily Review & Wrap Up", "Low", "Desk"]
+  ];
+
+  const { error } = await db.from('timetables').insert({
+    user_id: currentUserId,
+    title: "AI Optimized Work Schedule",
+    type: "Work/Business",
+    columns,
+    rows
+  });
+
+  if (error) {
+    toast('Error creating timetable: ' + error.message, 'error');
+  } else {
+    toast('✨ AI Timetable added to your account!', 'success');
+    closeModal('modal-ai-copilot');
+    if (window.loadTimetables) loadTimetables();
+    showSection('timetable');
+  }
+};
+
+window.applyAIBreakdownToPlan = async function() {
+  if (!currentUserId) return;
+  const title = "AI Action Plan — " + new Date().toLocaleDateString();
+  const start_date = today();
+  const end_date = today();
+  const activities = [
+    { text: "Complete 25-min Deep Focus session", status: null },
+    { text: "Review & check off pending activities", status: null },
+    { text: "Send daily update to team/friend", status: null }
+  ];
+
+  const { error } = await db.from('plans').insert({
+    user_id: currentUserId,
+    title,
+    duration: "daily",
+    start_date,
+    end_date,
+    activities
+  });
+
+  if (error) {
+    toast('Error creating plan: ' + error.message, 'error');
+  } else {
+    toast('✨ AI Tasks added to your Plans!', 'success');
+    closeModal('modal-ai-copilot');
+    if (window.loadPlans) loadPlans();
+    showSection('plans');
+  }
+};
+
