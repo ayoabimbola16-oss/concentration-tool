@@ -5040,27 +5040,41 @@ function buildMessageRow(msg, isGrouped = false, groupClass = '') {
 }
 
 function buildSharedCard(msg) {
-  const att = msg.attachment || {};
+  let att = msg.attachment || {};
+  if (typeof att === 'string') {
+    try { att = JSON.parse(att); } catch(e) { att = {}; }
+  }
+
+  const type = msg.type || msg.attachment_type || '';
+  const url = msg.attachment_url || att.audio_url || att.url || '';
+
+  // Audio Voice Note Message
+  if (type === 'audio' || (url && (url.startsWith('data:audio') || url.endsWith('.webm') || url.endsWith('.mp3')))) {
+    return `<div class="audio-msg-bubble" style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:rgba(255,255,255,0.06);border-radius:12px;margin-top:4px;">
+      <audio controls src="${url}" style="max-width:230px;height:38px;"></audio>
+    </div>`;
+  }
+
   let iconClass = '', icon = '', title = '', meta = '', typeLabel = '', actionLabel = '', onClickFn = '';
 
-  if (msg.type === 'timetable') {
+  if (type === 'timetable') {
     iconClass = 'timetable'; icon = 'fa-calendar-alt';
-    title = att.name || 'Timetable';
-    meta = att.slots ? `${att.slots} slots` : '';
-    typeLabel = 'Timetable'; actionLabel = 'View';
+    title = att.name || att.title || 'Timetable';
+    meta = att.slots ? `${att.slots} slots` : 'Timetable Schedule';
+    typeLabel = 'Timetable'; actionLabel = 'View & Import';
     onClickFn = `viewSharedTimetable(${JSON.stringify(att).replace(/"/g, '&quot;')})`;
-  } else if (msg.type === 'file') {
+  } else if (type === 'file') {
     iconClass = 'file'; icon = 'fa-file';
-    title = att.name || 'File';
-    meta = att.size || '';
-    typeLabel = 'File'; actionLabel = 'Open';
-    onClickFn = `openSharedFile('${att.url}')`;
-  } else if (msg.type === 'plan') {
+    title = att.name || 'Shared File';
+    meta = att.size || 'File attachment';
+    typeLabel = 'File'; actionLabel = 'Open File';
+    onClickFn = `openSharedFile('${url || att.url}')`;
+  } else if (type === 'plan') {
     iconClass = 'plan'; icon = 'fa-tasks';
     title = att.title || 'Plan';
     const planDuration = att.duration || att.type || '';
-    meta = planDuration ? `${planDuration} plan` : '';
-    typeLabel = 'Plan'; actionLabel = 'View';
+    meta = planDuration ? `${planDuration} plan` : 'Activities Plan';
+    typeLabel = 'Plan'; actionLabel = 'View & Save';
     onClickFn = `viewSharedPlan(${JSON.stringify(att).replace(/"/g, '&quot;')})`;
   }
 
@@ -5490,9 +5504,29 @@ function viewSharedTimetable(att) {
     <table class="tt-table">
       <thead><tr>${(tt.columns || []).map(c=>`<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
       <tbody>${(tt.rows||[]).map(row=>`<tr>${(row || []).map(c=>`<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody>
-    </table></div>`;
+    </table></div>
+    <button class="btn-save" onclick="importSharedTimetable(${JSON.stringify(tt).replace(/"/g, '&quot;')})" type="button" style="margin-top:16px;width:100%;justify-content:center"><i class="fa fa-plus"></i> Import to My Timetables</button>`;
   openModal('modal-tt-view');
 }
+
+window.importSharedTimetable = async function(tt) {
+  if (!currentUserId || !tt) return;
+  const payload = {
+    user_id: currentUserId,
+    title: (tt.tt_type || tt.name || 'Timetable') + ' (Imported)',
+    type: tt.type || 'General',
+    columns: tt.columns || ["Day","Subject","Time","Venue"],
+    rows: tt.rows || []
+  };
+  const { error } = await db.from('timetables').insert(payload);
+  if (error) { toast('Error importing timetable: ' + error.message, 'error'); }
+  else {
+    toast('📅 Timetable imported into your account!', 'success');
+    closeModal('modal-tt-view');
+    if (window.loadTimetables) loadTimetables();
+    showSection('timetable');
+  }
+};
 
 function openSharedFile(url) {
   if (!url) { toast('File URL unavailable', 'error'); return; }
@@ -5522,7 +5556,7 @@ function viewSharedPlan(att) {
     <div style="max-height:300px;overflow-y:auto;margin-bottom:20px;padding-right:5px">
       ${activities.map((a, i) => `
         <div class="activity-row" style="padding:10px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-          <div class="activity-text" style="color:var(--text1)">${escapeHtml(a.text)}</div>
+          <div class="activity-text" style="color:var(--text1)">${escapeHtml(typeof a === 'string' ? a : a.text)}</div>
           <div style="font-size:.85rem;color:${a.status === 'done' ? 'var(--green)' : 'var(--text3)'}">
             ${a.status === 'done' ? '<i class="fa fa-check-circle"></i> Completed' : '<i class="fa fa-circle"></i> Pending'}
           </div>
@@ -5530,9 +5564,147 @@ function viewSharedPlan(att) {
       `)
       .join('')}
     </div>
+    <button class="btn-save" onclick="importSharedPlan(${JSON.stringify(plan).replace(/"/g, '&quot;')})" type="button" style="margin-top:10px;width:100%;justify-content:center"><i class="fa fa-plus"></i> Import to My Plans</button>
   `;
   openModal('modal-plan-view');
 }
+
+window.importSharedPlan = async function(plan) {
+  if (!currentUserId || !plan) return;
+  const payload = {
+    user_id: currentUserId,
+    title: (plan.title || 'Plan') + ' (Imported)',
+    duration: plan.duration || 'daily',
+    start_date: today(),
+    end_date: today(),
+    activities: plan.activities || []
+  };
+  const { error } = await db.from('plans').insert(payload);
+  if (error) { toast('Error importing plan: ' + error.message, 'error'); }
+  else {
+    toast('✅ Plan imported into your account!', 'success');
+    closeModal('modal-plan-view');
+    if (window.loadPlans) loadPlans();
+    showSection('plans');
+  }
+};
+
+// ── Voice Note Recording Logic ────────────────────────────────────
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecordingVoice = false;
+
+window.sendChatMessage = async function() {
+  const input = document.getElementById('chat-input');
+  if (!input || !activeChatFriendId) return;
+  const text = input.value.trim();
+  if (text) {
+    input.value = '';
+    window.handleChatInput();
+    await sendRawMessage('text', text, null);
+  } else {
+    toggleVoiceNoteRecording();
+  }
+};
+
+window.toggleVoiceNoteRecording = async function() {
+  if (!isRecordingVoice) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Audio = reader.result;
+          await sendRawMessage('audio', null, { audio_url: base64Audio });
+          toast('🎤 Voice message sent!', 'success');
+        };
+        stream.getTracks().forEach(track => track.stop());
+      };
+      mediaRecorder.start();
+      isRecordingVoice = true;
+      toast('🎙️ Recording voice note... Click mic again to stop & send.', 'info');
+      const micBtn = document.getElementById('chat-send-btn');
+      if (micBtn) micBtn.style.background = '#e74c3c';
+    } catch(err) {
+      toast('Microphone access denied or unsupported.', 'error');
+    }
+  } else {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    isRecordingVoice = false;
+    const micBtn = document.getElementById('chat-send-btn');
+    if (micBtn) micBtn.style.background = 'linear-gradient(135deg, rgba(240,192,64,0.7), rgba(212,149,15,0.7))';
+  }
+};
+
+// ── Interactive Call Screen Logic ─────────────────────────────────
+let activeCallTimer = null;
+let activeCallSeconds = 0;
+let isCallMuted = false;
+let isCallVideoOff = false;
+
+window.startCall = function(type) {
+  if (!activeChatFriendId) { toast('Select a friend to call', 'error'); return; }
+  const name = document.getElementById('chat-header-name')?.textContent || 'Friend';
+  const avatar = document.getElementById('chat-header-avatar')?.innerHTML || 'U';
+
+  const userEl = document.getElementById('call-user-name');
+  const avatarEl = document.getElementById('call-avatar');
+  const statusEl = document.getElementById('call-status-text');
+
+  if (userEl) userEl.textContent = name;
+  if (avatarEl) avatarEl.innerHTML = avatar;
+  if (statusEl) statusEl.innerHTML = `<i class="fa fa-phone-volume fa-spin"></i> Calling ${type === 'video' ? 'Video' : 'Voice'}...`;
+
+  openModal('modal-active-call');
+
+  // Simulate call connection after 2s
+  setTimeout(() => {
+    if (statusEl) {
+      statusEl.style.color = '#2ecc71';
+      activeCallSeconds = 0;
+      if (activeCallTimer) clearInterval(activeCallTimer);
+      activeCallTimer = setInterval(() => {
+        activeCallSeconds++;
+        const mins = String(Math.floor(activeCallSeconds / 60)).padStart(2, '0');
+        const secs = String(activeCallSeconds % 60).padStart(2, '0');
+        statusEl.innerHTML = `<i class="fa fa-circle" style="color:#2ecc71;font-size:0.6rem"></i> Connected • ${mins}:${secs}`;
+      }, 1000);
+    }
+  }, 2000);
+};
+
+window.endCall = function() {
+  if (activeCallTimer) clearInterval(activeCallTimer);
+  closeModal('modal-active-call');
+  toast('Call ended', 'info');
+};
+
+window.toggleCallMute = function() {
+  isCallMuted = !isCallMuted;
+  const btn = document.getElementById('call-mute-btn');
+  if (btn) {
+    btn.style.background = isCallMuted ? '#e74c3c' : 'rgba(255,255,255,0.1)';
+    btn.innerHTML = `<i class="fa ${isCallMuted ? 'fa-microphone-slash' : 'fa-microphone'}"></i>`;
+  }
+  toast(isCallMuted ? 'Microphone muted' : 'Microphone unmuted', 'info');
+};
+
+window.toggleCallVideo = function() {
+  isCallVideoOff = !isCallVideoOff;
+  const btn = document.getElementById('call-video-btn');
+  if (btn) {
+    btn.style.background = isCallVideoOff ? '#e74c3c' : 'rgba(255,255,255,0.1)';
+    btn.innerHTML = `<i class="fa ${isCallVideoOff ? 'fa-video-slash' : 'fa-video'}"></i>`;
+  }
+  toast(isCallVideoOff ? 'Camera turned off' : 'Camera turned on', 'info');
+};
 
 // ── Reactions ───────────────────────────────────────────────────
 

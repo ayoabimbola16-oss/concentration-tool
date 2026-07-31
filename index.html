@@ -1160,47 +1160,69 @@
   <span class="ai-fab-pulse"></span>
 </button>
 
-<!-- AI ACTIVITY CO-PILOT MODAL -->
+<!-- AI ACTIVITY CO-PILOT MODAL (ChatGPT-Style Conversational AI) -->
 <div id="modal-ai-copilot" class="overlay" style="display:none">
-  <div class="modal modal-wide" style="max-width:680px">
-    <div class="mh" style="background:linear-gradient(135deg,rgba(155,89,182,0.25),rgba(52,152,219,0.25))">
-      <h2><i class="fa fa-wand-magic-sparkles" style="color:#ffd700"></i> PlanTrack AI Co-Pilot</h2>
+  <div class="modal modal-wide" style="max-width:720px">
+    <div class="mh" style="background:linear-gradient(135deg,rgba(155,89,182,0.3),rgba(52,152,219,0.3))">
+      <h2><i class="fa fa-robot" style="color:#ffd700"></i> PlanTrack AI Co-Pilot</h2>
       <button class="mclose" onclick="closeModal('modal-ai-copilot')" type="button"><i class="fa fa-times"></i></button>
     </div>
     <div class="mb">
-      <!-- Activity Context Summary -->
-      <div id="ai-context-banner" class="ai-context-card" style="background:rgba(255,255,255,0.04);border-radius:12px;padding:16px;border:1px solid rgba(255,255,255,0.08);margin-bottom:16px;">
-        <div style="font-size:0.85rem;color:var(--accent);font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
-          <i class="fa fa-chart-line"></i> Real-time Activity Context
+      <!-- Activity Context Summary Banner -->
+      <div id="ai-context-banner" class="ai-context-card" style="background:rgba(255,255,255,0.04);border-radius:12px;padding:12px 16px;border:1px solid rgba(255,255,255,0.08);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <div style="font-size:0.85rem;color:var(--text);line-height:1.4">
+          <i class="fa fa-chart-line" style="color:var(--accent);margin-right:6px"></i>
+          <span id="ai-context-text">Analyzing your focus sessions, timetables, and plans...</span>
         </div>
-        <p id="ai-context-text" style="font-size:0.9rem;color:var(--text);margin:0;line-height:1.5">Analyzing your focus sessions, timetables, and plans...</p>
+        <button class="btn-outline-sm" onclick="askAICoPilot('generate_timetable')" type="button" style="font-size:0.75rem;padding:4px 10px;white-space:nowrap;flex-shrink:0"><i class="fa fa-wand-magic-sparkles"></i> Auto-Schedule</button>
       </div>
 
-      <!-- Quick AI Action Prompts -->
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-        <button class="timer-chip" onclick="askAICoPilot('generate_timetable')" type="button"><i class="fa fa-calendar-plus"></i> Generate Work/Study Timetable</button>
-        <button class="timer-chip" onclick="askAICoPilot('breakdown_tasks')" type="button"><i class="fa fa-list-check"></i> Break Plan into Micro-tasks</button>
-        <button class="timer-chip" onclick="askAICoPilot('reschedule_gaps')" type="button"><i class="fa fa-clock-rotate-left"></i> Reschedule Missed Activities</button>
-        <button class="timer-chip" onclick="askAICoPilot('focus_advice')" type="button"><i class="fa fa-brain"></i> Get Focus & Burnout Advice</button>
+      <!-- ChatGPT-Style Multi-Turn Conversational Log Container -->
+      <div id="ai-chat-log" style="background:rgba(0,0,0,0.3);border-radius:12px;padding:16px;height:350px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;border:1px solid rgba(255,255,255,0.08);margin-bottom:14px">
+        <div class="ai-msg-row ai" style="display:flex;gap:10px;align-items:flex-start">
+          <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#9b59b6,#3498db);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1rem;flex-shrink:0"><i class="fa fa-robot"></i></div>
+          <div style="background:rgba(255,255,255,0.06);padding:12px 16px;border-radius:12px;max-width:85%;font-size:0.92rem;line-height:1.6;color:var(--text1)">
+            Hi! I'm your PlanTrack AI Co-Pilot. You can chat with me about anything — business strategy, project schedules, study routines, focus tips, or general advice!
+          </div>
+        </div>
       </div>
 
-      <!-- AI Response & Action Execution Container -->
-      <div id="ai-response-area" style="background:rgba(0,0,0,0.25);border-radius:12px;padding:18px;min-height:160px;max-height:300px;overflow-y:auto;font-size:0.92rem;line-height:1.6;color:var(--text);border:1px solid rgba(255,255,255,0.06)">
-        <div style="color:var(--text3);text-align:center;padding:30px">
-          <i class="fa fa-robot" style="font-size:2rem;margin-bottom:10px;display:block;color:var(--accent)"></i>
-          Hi! I'm your PlanTrack AI Co-Pilot. Click any button above or type what you need help with based on your daily activities!
-        </div>
+      <!-- Quick Suggestion Chips -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+        <button class="timer-chip" onclick="askAICoPilot('generate_timetable')" type="button"><i class="fa fa-calendar-plus"></i> Generate Schedule</button>
+        <button class="timer-chip" onclick="askAICoPilot('breakdown_tasks')" type="button"><i class="fa fa-list-check"></i> Task Breakdown</button>
+        <button class="timer-chip" onclick="askAICoPilot('reschedule_gaps')" type="button"><i class="fa fa-clock-rotate-left"></i> Reschedule Gaps</button>
+        <button class="timer-chip" onclick="askAICoPilot('focus_advice')" type="button"><i class="fa fa-brain"></i> Focus Advice</button>
       </div>
 
       <!-- AI Prompt Input -->
-      <div style="display:flex;gap:8px;margin-top:16px">
-        <input type="text" id="ai-prompt-input" placeholder="Ask AI anything about your plans, schedule, or tasks..." style="flex:1;padding:12px 16px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:var(--text)" onkeydown="if(event.key==='Enter')submitCustomAIPrompt()"/>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="ai-prompt-input" placeholder="Ask AI anything (business, study, routines, general advice)..." style="flex:1;padding:12px 16px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:var(--text)" onkeydown="if(event.key==='Enter')submitCustomAIPrompt()"/>
         <button class="btn-save" onclick="submitCustomAIPrompt()" type="button" style="padding:0 20px"><i class="fa fa-paper-plane"></i> Send</button>
       </div>
     </div>
     <div class="mf" style="justify-content:space-between;align-items:center">
       <div style="font-size:0.8rem;color:var(--text3)"><i class="fa fa-crown" style="color:#ffd700"></i> PlanTrack PRO Co-Pilot</div>
       <button class="btn-cancel" onclick="closeModal('modal-ai-copilot')" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ACTIVE VOICE / VIDEO CALL MODAL -->
+<div id="modal-active-call" class="overlay" style="display:none">
+  <div class="modal modal-sm" style="text-align:center;padding:32px 20px;max-width:400px;background:#0d0d10;border:1px solid rgba(255,255,255,0.12);border-radius:18px">
+    <div style="position:relative;width:90px;height:90px;margin:0 auto 20px auto">
+      <div id="call-avatar" style="width:90px;height:90px;border-radius:50%;background:var(--accent);color:#000;font-size:2.2rem;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 30px rgba(240,192,64,0.35)">U</div>
+      <div class="call-pulse-ring" style="position:absolute;inset:-8px;border-radius:50%;border:2px solid var(--accent);animation:callPulse 1.8s infinite"></div>
+    </div>
+    <h3 id="call-user-name" style="font-size:1.3rem;margin-bottom:6px;color:var(--text1)">Friend Name</h3>
+    <p id="call-status-text" style="font-size:0.88rem;color:var(--accent);margin-bottom:28px"><i class="fa fa-phone-volume fa-spin"></i> Calling...</p>
+
+    <!-- Call Controls -->
+    <div style="display:flex;justify-content:center;align-items:center;gap:20px">
+      <button class="call-control-btn" id="call-mute-btn" onclick="toggleCallMute()" type="button" title="Mute Microphone" style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:1.2rem;cursor:pointer"><i class="fa fa-microphone"></i></button>
+      <button class="call-control-btn hangup" onclick="endCall()" type="button" title="End Call" style="width:60px;height:60px;border-radius:50%;background:#e74c3c;border:none;color:#fff;font-size:1.4rem;cursor:pointer;box-shadow:0 6px 20px rgba(231,76,60,0.5)"><i class="fa fa-phone-slash"></i></button>
+      <button class="call-control-btn" id="call-video-btn" onclick="toggleCallVideo()" type="button" title="Toggle Camera" style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:1.2rem;cursor:pointer"><i class="fa fa-video"></i></button>
     </div>
   </div>
 </div>
