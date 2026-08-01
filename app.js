@@ -627,114 +627,66 @@ async function login() {
 }
 
 async function signInWithGoogle() {
+  const btn = document.querySelector('.google-sign-btn');
   try {
-    // Build the redirect URL. On native Capacitor we use custom deep link scheme.
-    const isCapacitor = window.Capacitor && window.Capacitor.isNative;
-    const currentUrl = window.location.href.split('#')[0].split('?')[0];
-    const redirectTo = isCapacitor ? 'com.lenovo.plantrack://login-callback' : currentUrl;
+    // Show loading state
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; }
+    showAuthMsg('Connecting to Google…', 'info');
 
-    showAuthMsg(isCapacitor ? 'Redirecting to Google…' : 'Opening Google sign-in…', 'info');
+    const isCapacitor = !!(window.Capacitor && window.Capacitor.isNative);
 
-    // ── Get the OAuth URL without navigating away ──────────────
-    const { data, error } = await db.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: redirectTo,
-        skipBrowserRedirect: true   // ← don't navigate, just give us the URL
-      }
-    });
-    if (error) throw error;
+    // Build the redirect URL — where Google should send the user back after auth
+    // On Capacitor: use deep link scheme; On web: use the current page URL (clean)
+    const redirectTo = isCapacitor
+      ? 'com.lenovo.plantrack://login-callback'
+      : (window.location.origin + '/index.html');
 
-    if (!data?.url) {
-      showAuthMsg('Could not start Google sign-in. Please try again.');
-      return;
-    }
-
-    // ── Capacitor Native: Open in external Chrome/System Browser ──
+    // ── Capacitor Native App ──────────────────────────────────────
     if (isCapacitor) {
-      if (window.Capacitor.Plugins && window.Capacitor.Plugins.Browser) {
+      const { data, error } = await db.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo, skipBrowserRedirect: true }
+      });
+      if (error) throw error;
+      if (!data?.url) throw new Error('No OAuth URL returned');
+      // Open in system browser
+      if (window.Capacitor.Plugins?.Browser) {
         await window.Capacitor.Plugins.Browser.open({ url: data.url, windowName: '_system' });
       } else {
         window.open(data.url, '_system');
       }
+      if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
       return;
     }
 
-    // ── Web Popup Flow ──
-    const w = 500, h = 620;
-    const left = Math.max(0, (screen.width - w) / 2);
-    const top  = Math.max(0, (screen.height - h) / 2);
-    const popup = window.open(
-      data.url,
-      'google-auth',
-      `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes`
-    );
+    // ── Web: Full-Page Redirect (works everywhere, no popup blocking) ───
+    // Mark landing as visited so the redirect script doesn't bounce us away
+    try { localStorage.setItem('pt_visited_landing', '1'); } catch(e) {}
 
-    // Fallback: if popup was blocked, fall back to full redirect
-    if (!popup || popup.closed) {
-      showAuthMsg('Popup blocked — redirecting…', 'info');
-      window.location.href = data.url;
-      return;
-    }
+    const { error } = await db.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo }   // Supabase handles the redirect automatically
+    });
 
-    // ── Poll the popup until it redirects back with tokens ────
-    const pollTimer = setInterval(async () => {
-      try {
-        // Popup was closed manually by the user
-        if (!popup || popup.closed) {
-          clearInterval(pollTimer);
-          closeAuthMsg();
-          // Check if maybe the session was set anyway
-          const { data: { session } } = await db.auth.getSession();
-          if (!session) {
-            showAuthMsg('Sign-in was cancelled.');
-          }
-          return;
-        }
-
-        // Try to read the popup's URL — throws while on Google's domain
-        const popupUrl = popup.location.href;
-
-        // Check if the popup redirected back to our origin with tokens
-        if (popupUrl.startsWith(currentUrl) || popupUrl.startsWith(window.location.origin)) {
-          const hashFragment = popup.location.hash;
-
-          // Only process if we actually have tokens in the hash
-          if (hashFragment && hashFragment.includes('access_token')) {
-            clearInterval(pollTimer);
-            popup.close();
-
-            // Parse tokens from the hash fragment
-            const params = new URLSearchParams(hashFragment.substring(1));
-            const access_token  = params.get('access_token');
-            const refresh_token = params.get('refresh_token');
-
-            if (access_token && refresh_token) {
-              // Set the session on our main-window Supabase client
-              const { error: sessErr } = await db.auth.setSession({
-                access_token,
-                refresh_token
-              });
-              if (sessErr) {
-                console.error('[Google Auth] setSession error:', sessErr);
-                showAuthMsg('Error completing sign-in: ' + sessErr.message);
-              }
-              // onAuthStateChange will handle the rest (hide auth screen, init app)
-            } else {
-              showAuthMsg('Sign-in failed — missing tokens. Please try again.');
-            }
-          }
-        }
-      } catch (e) {
-        // Cross-origin error — popup is still on Google/Supabase domain, keep polling
-      }
-    }, 400);
+    if (error) throw error;
+    // Page will redirect to Google — no further code runs here.
+    // When Google sends the user back, Supabase fires onAuthStateChange → initApp()
 
   } catch (err) {
     console.error('[Google Auth]', err);
-    showAuthMsg('Error signing in with Google: ' + err.message);
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+    closeAuthMsg();
+
+    // Check if it's a URL mismatch / redirect URI error
+    const msg = (err.message || '').toLowerCase();
+    if (msg.includes('redirect') || msg.includes('uri') || msg.includes('origin')) {
+      showAuthMsg('Google sign-in is not configured for this URL. Please use username + password, or open the live app.');
+    } else {
+      showAuthMsg('Google sign-in failed: ' + (err.message || 'Unknown error. Please try again.'));
+    }
   }
 }
+
 
 async function register() {
   const username = document.getElementById('r-user').value.trim();
