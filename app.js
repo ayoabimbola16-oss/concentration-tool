@@ -770,32 +770,58 @@ async function initApp(user) {
   currentUser   = user;
   currentUserId = user.id;
 
+  // Immediately hide auth screen and show main app
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  // Mark landing as visited so logged-in users skip landing page redirect
+  try { localStorage.setItem('pt_visited_landing', '1'); } catch(e) {}
+
   // Load profile
-  let { data: profile } = await db.from('profiles').select('*').eq('id', user.id).maybeSingle();
-  
-  const needsProfileSetup = !profile || !profile.username || !profile.avatar_url;
+  let profile = null;
+  try {
+    const { data } = await db.from('profiles').select('*').eq('id', user.id).maybeSingle();
+    profile = data;
+  } catch(err) {
+    console.warn('[initApp] Profile load error:', err);
+  }
+
+  // If no profile exists yet (e.g. new Google OAuth user), auto-create one
+  if (!profile) {
+    const meta = user.user_metadata || {};
+    const rawName = meta.username || meta.full_name || meta.name || user.email?.split('@')[0] || 'user';
+    const cleanUsername = rawName.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+
+    const newProfilePayload = {
+      id: user.id,
+      username: cleanUsername,
+      email: user.email,
+      avatar_url: meta.avatar_url || meta.picture || ''
+    };
+
+    try {
+      const { data: createdProfile } = await db.from('profiles').upsert(newProfilePayload, { onConflict: 'id' }).select('*').maybeSingle();
+      profile = createdProfile || newProfilePayload;
+    } catch(e) {
+      profile = newProfilePayload;
+    }
+  }
+
+  const needsProfileSetup = !profile || !profile.username;
 
   if (needsProfileSetup) {
-    // Pre-fill username if they already have one (only avatar missing)
     if (profile && profile.username) {
       const setupInput = document.getElementById('setup-username-input');
       if (setupInput) setupInput.value = profile.username;
     }
 
-    // Show the complete profile modal
     openModal('modal-complete-profile');
 
-    // Update modal subtitle based on what's missing
     const modalP = document.querySelector('#modal-complete-profile .mb p');
     if (modalP) {
-      if (!profile || !profile.username) {
-        modalP.textContent = 'Welcome! Please choose a username and upload a profile picture to continue.';
-      } else {
-        modalP.textContent = 'Almost there! Please upload a profile picture to complete your account setup.';
-      }
+      modalP.textContent = 'Welcome! Please choose a username to complete your setup.';
     }
 
-    // Hide the close button to force completion
     const closeBtn = document.querySelector('#modal-complete-profile .mclose');
     if (closeBtn) closeBtn.style.display = 'none';
   }
@@ -818,20 +844,14 @@ async function initApp(user) {
   // Update PlanTrack PRO Trial status badge
   if (window.checkProTrialStatus) window.checkProTrialStatus();
 
-  // Sync daily streak (Supabase-backed)
-  await syncStreak();
-
-  document.getElementById('auth-screen').style.display = 'none';
-  document.getElementById('app').style.display = 'block';
-  // Mark landing as visited so logged-in users skip landing page redirect
-  try { localStorage.setItem('pt_visited_landing', '1'); } catch(e) {}
-
-
-  await loadUserSounds();
+  // Non-blocking async tasks
+  syncStreak().catch(err => console.warn('[initApp] Streak sync error:', err));
+  loadUserSounds().catch(err => console.warn('[initApp] Sounds load error:', err));
 
   // Restore last visited section (so refresh stays on same page)
   const lastSection = (() => { try { return localStorage.getItem('pt_last_section') || 'alarms'; } catch(e) { return 'alarms'; } })();
   showSection(lastSection);
+
 
   startAlarmChecker();
   startAlarmCountdown();
