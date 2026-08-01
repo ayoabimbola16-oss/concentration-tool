@@ -635,11 +635,13 @@ async function signInWithGoogle() {
 
     const isCapacitor = !!(window.Capacitor && window.Capacitor.isNative);
 
-    // Build the redirect URL — where Google should send the user back after auth
-    // On Capacitor: use deep link scheme; On web: use the current page URL (clean)
-    const redirectTo = isCapacitor
-      ? 'com.lenovo.plantrack://login-callback'
-      : (window.location.origin + '/index.html');
+    // ✅ Use the ACTUAL current page URL (works on localhost AND GitHub Pages subpaths)
+    // e.g. https://ayoabimbola16-oss.github.io/concentration-tool/index.html
+    const cleanUrl  = window.location.href.split('#')[0].split('?')[0];
+    const redirectTo = isCapacitor ? 'com.lenovo.plantrack://login-callback' : cleanUrl;
+
+    // Mark landing as visited BEFORE redirect so the page loads correctly when Google returns
+    try { localStorage.setItem('pt_visited_landing', '1'); } catch(e) {}
 
     // ── Capacitor Native App ──────────────────────────────────────
     if (isCapacitor) {
@@ -649,7 +651,6 @@ async function signInWithGoogle() {
       });
       if (error) throw error;
       if (!data?.url) throw new Error('No OAuth URL returned');
-      // Open in system browser
       if (window.Capacitor.Plugins?.Browser) {
         await window.Capacitor.Plugins.Browser.open({ url: data.url, windowName: '_system' });
       } else {
@@ -659,33 +660,31 @@ async function signInWithGoogle() {
       return;
     }
 
-    // ── Web: Full-Page Redirect (works everywhere, no popup blocking) ───
-    // Mark landing as visited so the redirect script doesn't bounce us away
-    try { localStorage.setItem('pt_visited_landing', '1'); } catch(e) {}
-
+    // ── Web: Full-Page Redirect ───────────────────────────────────
+    // Supabase will automatically redirect the browser to Google.
+    // After the user signs in, Google redirects back to `cleanUrl`
+    // with tokens in the URL hash → onAuthStateChange fires → initApp()
     const { error } = await db.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo }   // Supabase handles the redirect automatically
+      options: { redirectTo: cleanUrl }
     });
 
     if (error) throw error;
-    // Page will redirect to Google — no further code runs here.
-    // When Google sends the user back, Supabase fires onAuthStateChange → initApp()
+    // ↑ Page navigates away here — nothing below runs until Google returns
 
   } catch (err) {
     console.error('[Google Auth]', err);
     if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
     closeAuthMsg();
-
-    // Check if it's a URL mismatch / redirect URI error
     const msg = (err.message || '').toLowerCase();
     if (msg.includes('redirect') || msg.includes('uri') || msg.includes('origin')) {
-      showAuthMsg('Google sign-in is not configured for this URL. Please use username + password, or open the live app.');
+      showAuthMsg('Google sign-in: redirect URL not registered. Please contact the app owner.');
     } else {
-      showAuthMsg('Google sign-in failed: ' + (err.message || 'Unknown error. Please try again.'));
+      showAuthMsg('Google sign-in failed: ' + (err.message || 'Please try again.'));
     }
   }
 }
+
 
 
 async function register() {
