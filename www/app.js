@@ -36,14 +36,13 @@
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_ANON, {
   auth: {
-    persistSession: true,       // store session in localStorage
-    autoRefreshToken: true,     // auto-refresh expired tokens
-    detectSessionInUrl: true,   // parse OAuth tokens from URL hash automatically
-    flowType: 'implicit',       // use hash-based flow — simpler, works on any domain
-    // NOTE: no storageKey override — default key is sb-<projectRef>-auth-token
-    // which matches the redirect script's 'sb-' prefix check perfectly.
+    persistSession: true,         // store session in localStorage
+    autoRefreshToken: true,       // auto-refresh expired tokens
+    detectSessionInUrl: true,     // parse OAuth tokens from URL hash/query
+    storageKey: 'plantrack-auth', // explicit custom storage key
   }
 });
+
 
 
 // ── Global State ─────────────────────────────────────────────────
@@ -632,21 +631,13 @@ async function login() {
 async function signInWithGoogle() {
   const btn = document.querySelector('.google-sign-btn');
   try {
-    // Show loading state
     if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; }
     showAuthMsg('Connecting to Google…', 'info');
 
     const isCapacitor = !!(window.Capacitor && window.Capacitor.isNative);
+    const cleanUrl    = window.location.href.split('#')[0].split('?')[0];
+    const redirectTo  = isCapacitor ? 'com.lenovo.plantrack://login-callback' : cleanUrl;
 
-    // ✅ Use the ACTUAL current page URL (works on localhost AND GitHub Pages subpaths)
-    // e.g. https://ayoabimbola16-oss.github.io/concentration-tool/index.html
-    const cleanUrl  = window.location.href.split('#')[0].split('?')[0];
-    const redirectTo = isCapacitor ? 'com.lenovo.plantrack://login-callback' : cleanUrl;
-
-    // Mark landing as visited BEFORE redirect so the page loads correctly when Google returns
-    try { localStorage.setItem('pt_visited_landing', '1'); } catch(e) {}
-
-    // ── Capacitor Native App ──────────────────────────────────────
     if (isCapacitor) {
       const { data, error } = await db.auth.signInWithOAuth({
         provider: 'google',
@@ -663,30 +654,20 @@ async function signInWithGoogle() {
       return;
     }
 
-    // ── Web: Full-Page Redirect ───────────────────────────────────
-    // Supabase will automatically redirect the browser to Google.
-    // After the user signs in, Google redirects back to `cleanUrl`
-    // with tokens in the URL hash → onAuthStateChange fires → initApp()
     const { error } = await db.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: cleanUrl }
     });
 
     if (error) throw error;
-    // ↑ Page navigates away here — nothing below runs until Google returns
-
   } catch (err) {
     console.error('[Google Auth]', err);
     if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
     closeAuthMsg();
-    const msg = (err.message || '').toLowerCase();
-    if (msg.includes('redirect') || msg.includes('uri') || msg.includes('origin')) {
-      showAuthMsg('Google sign-in: redirect URL not registered. Please contact the app owner.');
-    } else {
-      showAuthMsg('Google sign-in failed: ' + (err.message || 'Please try again.'));
-    }
+    showAuthMsg('Google sign-in failed: ' + (err.message || 'Please try again.'));
   }
 }
+
 
 
 
@@ -2755,31 +2736,13 @@ window.startSubscription = function() {
     const splash = document.getElementById('splash-screen');
     if (splash) {
       splash.style.opacity = '0';
-      setTimeout(() => splash.remove(), 500);
+      setTimeout(() => splash.remove(), 400);
     }
   };
 
-  // ── Check for existing session (works for both page refresh AND
-  //    implicit OAuth callback — detectSessionInUrl reads #access_token
-  //    from the URL hash before getSession() is called) ──────────
-  try {
-    const { data: { session } } = await db.auth.getSession();
-    if (session?.user) {
-      document.getElementById('auth-screen').style.display = 'none';
-      await initApp(session.user);
-    } else {
-      document.getElementById('auth-screen').style.display = 'flex';
-    }
-  } catch(e) {
-    console.error('Session check failed:', e);
-    document.getElementById('auth-screen').style.display = 'flex';
-  } finally {
-    hideSplash();
-  }
-
-  // ── Auth State Listener ─────────────────────────────────────
+  // 1. Set up Auth State Change Listener FIRST
   db.auth.onAuthStateChange(async (event, session) => {
-    console.log('[Auth]', event, session?.user?.email);
+    console.log('[Auth Listener]', event, session?.user?.email);
 
     if (
       (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') &&
@@ -2787,11 +2750,10 @@ window.startSubscription = function() {
     ) {
       if (!currentUser || currentUser.id !== session.user.id) {
         closeAuthMsg();
-        document.getElementById('auth-screen').style.display = 'none';
         await initApp(session.user);
       }
-      // Clean URL hash after OAuth token pickup
-      if ((window.location.hash || '').includes('access_token')) {
+      // Clean URL parameters after OAuth login completes
+      if ((window.location.hash || '').includes('access_token') || (window.location.search || '').includes('code=')) {
         history.replaceState(null, '', window.location.pathname);
       }
     }
@@ -2803,6 +2765,24 @@ window.startSubscription = function() {
       switchTab('login');
     }
   });
+
+  // 2. Perform initial session check
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    if (session?.user) {
+      await initApp(session.user);
+    } else {
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('auth-screen').style.display = 'flex';
+    }
+  } catch(e) {
+    console.error('Session check failed:', e);
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('auth-screen').style.display = 'flex';
+  } finally {
+    hideSplash();
+  }
+
 
   // Handle Capacitor deep links (when the app is opened via a custom URL scheme)
   if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
