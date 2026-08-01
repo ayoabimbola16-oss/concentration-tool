@@ -203,14 +203,20 @@ function toast(msg, type = 'info') {
 
 function showAuthMsg(msg, type = 'error') {
   const el = document.getElementById('auth-msg');
+  if (!el) return;
   el.textContent = msg;
   el.className = `auth-msg ${type}`;
   el.style.display = 'block';
+  // Auto-clear info/success messages so they don't stay stuck
+  clearTimeout(el._authTimer);
+  if (type === 'info' || type === 'success') {
+    el._authTimer = setTimeout(() => { el.style.display = 'none'; }, 6000);
+  }
 }
 
 function closeAuthMsg() {
   const el = document.getElementById('auth-msg');
-  if (el) el.style.display = 'none';
+  if (el) { el.style.display = 'none'; clearTimeout(el._authTimer); }
 }
 
 function closeModal(id) {
@@ -523,7 +529,19 @@ async function login() {
   if (!username) { showAuthMsg('Please enter your username.'); return; }
   if (!password) { showAuthMsg('Please enter your password.'); return; }
 
+  // Show loading state on button
+  const loginBtn = document.querySelector('#tab-login .auth-btn');
+  const originalBtnHTML = loginBtn ? loginBtn.innerHTML : '';
+  if (loginBtn) {
+    loginBtn.disabled = true;
+    loginBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Signing in…';
+  }
+  const resetBtn = () => {
+    if (loginBtn) { loginBtn.disabled = false; loginBtn.innerHTML = originalBtnHTML; }
+  };
+
   showAuthMsg('Signing in...', 'info');
+
 
   try {
     // Step 1: find email from username (case-insensitive match)
@@ -555,11 +573,13 @@ async function login() {
       } else {
         showAuthMsg('Error looking up username (' + (profileError.message || 'unknown') + '). Please try again.');
       }
+      resetBtn();
       return;
     }
 
     if (!profile) {
       showAuthMsg('Username not found. Please check spelling and try again.');
+      resetBtn();
       return;
     }
 
@@ -581,19 +601,23 @@ async function login() {
       } else {
         showAuthMsg(error.message || 'Sign-in failed. Please try again.');
       }
+      resetBtn();
       return;
     }
 
     if (!data || !data.user) {
       showAuthMsg('Login failed unexpectedly. Please try again.');
+      resetBtn();
       return;
     }
 
     closeAuthMsg();
+    resetBtn();
     await initApp(data.user);
 
   } catch (err) {
     console.error('[PlanTrack Login] Unexpected exception:', err);
+    resetBtn();
     if (!navigator.onLine) {
       showAuthMsg('You are offline. Please check your internet connection.');
     } else {
@@ -2780,11 +2804,14 @@ window.startSubscription = function() {
     // Handle all events that mean "user is logged in"
     if (
       (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') &&
-      session?.user &&
-      !currentUser
+      session?.user
     ) {
-      document.getElementById('auth-screen').style.display = 'none';
-      await initApp(session.user);
+      // Allow re-init if user changed or currentUser was not fully set
+      if (!currentUser || currentUser.id !== session.user.id) {
+        closeAuthMsg();
+        document.getElementById('auth-screen').style.display = 'none';
+        await initApp(session.user);
+      }
 
       // Clean the URL hash after successful OAuth token pickup
       const h = window.location.hash || '';
@@ -2794,9 +2821,10 @@ window.startSubscription = function() {
     }
 
     if (event === 'SIGNED_OUT') {
-      currentUser = null;
+      currentUser = null; currentUserId = null; currentUserProfile = null;
       document.getElementById('app').style.display = 'none';
       document.getElementById('auth-screen').style.display = 'flex';
+      switchTab('login');
     }
   });
 

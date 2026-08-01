@@ -19,21 +19,39 @@
   <script>
     (function() {
       try {
-        var hasVisited  = localStorage.getItem('pt_visited_landing');
-        var hasSession  = localStorage.getItem('sb-' + location.hostname + '-auth-token') ||
-                         document.cookie.indexOf('sb-access-token') !== -1;
-        // If they've never seen the landing page AND have no session → redirect
+        // Check if they've been to the landing page before
+        var hasVisited = localStorage.getItem('pt_visited_landing');
+
+        // Robustly detect any Supabase session in localStorage
+        // (Supabase stores it under different keys depending on the project ref)
+        var hasSession = false;
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && (k.indexOf('supabase') !== -1 || k.indexOf('sb-') !== -1)) {
+            try {
+              var v = localStorage.getItem(k);
+              if (v && v.indexOf('access_token') !== -1) { hasSession = true; break; }
+            } catch(e) {}
+          }
+        }
+
+        // Also check URL hash for OAuth tokens (Google redirect callback)
+        if (window.location.hash && window.location.hash.indexOf('access_token') !== -1) {
+          hasSession = true;
+        }
+
+        // Redirect first-time anonymous visitors to landing page
         if (!hasVisited && !hasSession) {
-          // Also skip redirect if coming directly from landing.html referrer
-          var ref = document.referrer;
-          var fromLanding = ref && ref.indexOf('landing.html') !== -1;
+          var ref = document.referrer || '';
+          var fromLanding = ref.indexOf('landing') !== -1 || ref.indexOf('landing.html') !== -1;
           if (!fromLanding) {
             window.location.replace('landing.html');
           }
         }
-      } catch(e) { /* ignore storage errors */ }
+      } catch(e) { /* ignore storage errors in private mode */ }
     })();
   </script>
+
 
 </head>
 <body>
