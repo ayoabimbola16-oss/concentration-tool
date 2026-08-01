@@ -713,55 +713,73 @@
   </div>
 </div>
 
-<!-- TIMETABLE MODAL STEP 1 -->
-<div id="modal-tt1" class="overlay" style="display:none">
-  <div class="modal modal-sm">
-    <div class="mh">
-      <h2><i class="fa fa-calendar-alt"></i> New Timetable</h2>
-      <button class="mclose" onclick="closeModal('modal-tt1')" type="button"><i class="fa fa-times"></i></button>
+<!-- UNIFIED SMART TIMETABLE CREATOR MODAL -->
+<div id="modal-tt-create" class="overlay" style="display:none">
+  <div class="modal modal-wide" style="max-width:680px">
+    <div class="mh" style="background:linear-gradient(135deg,rgba(240,192,64,0.15),rgba(52,152,219,0.1))">
+      <h2><i class="fa fa-calendar-alt" style="color:var(--accent)"></i> <span id="ttc-heading">Create Timetable</span></h2>
+      <button class="mclose" onclick="closeModal('modal-tt-create')" type="button"><i class="fa fa-times"></i></button>
     </div>
-    <div class="mb">
-      <p class="question-text">What kind of timetable do you want to create?</p>
-      <div class="fg">
-        <label>Timetable Type / Name</label>
-        <div class="voice-row">
-          <input type="text" id="tt-type" placeholder="e.g. School Schedule, Workout Routine..."/>
-          <button class="voice-btn" onclick="startVoice('tt-type','tt-voice-status')" title="Speak" type="button">
-            <i class="fa fa-microphone"></i>
+    <div class="mb" style="padding:20px">
+
+      <!-- Timetable Name -->
+      <div class="fg" style="margin-bottom:16px">
+        <label style="font-weight:600;color:var(--text1)">Timetable Name <span class="req">*</span></label>
+        <input type="text" id="ttc-name" placeholder="e.g. School Week, Work Schedule, Gym Routine..."
+          style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text1);font-size:0.95rem;width:100%;box-sizing:border-box"/>
+      </div>
+
+      <!-- Quick Template Cards -->
+      <div style="margin-bottom:18px">
+        <label style="font-size:0.83rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:block">⚡ Quick Templates — click to auto-fill</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button type="button" class="tt-template-btn" onclick="applyTTTemplate('school')" style="padding:8px 14px;border-radius:20px;border:1px solid rgba(52,152,219,0.5);background:rgba(52,152,219,0.1);color:#3498db;font-size:0.82rem;cursor:pointer">🏫 School</button>
+          <button type="button" class="tt-template-btn" onclick="applyTTTemplate('work')" style="padding:8px 14px;border-radius:20px;border:1px solid rgba(46,204,113,0.5);background:rgba(46,204,113,0.1);color:#2ecc71;font-size:0.82rem;cursor:pointer">💼 Work</button>
+          <button type="button" class="tt-template-btn" onclick="applyTTTemplate('study')" style="padding:8px 14px;border-radius:20px;border:1px solid rgba(155,89,182,0.5);background:rgba(155,89,182,0.1);color:#9b59b6;font-size:0.82rem;cursor:pointer">📚 Study</button>
+          <button type="button" class="tt-template-btn" onclick="applyTTTemplate('gym')" style="padding:8px 14px;border-radius:20px;border:1px solid rgba(231,76,60,0.5);background:rgba(231,76,60,0.1);color:#e74c3c;font-size:0.82rem;cursor:pointer">🏋️ Gym</button>
+          <button type="button" class="tt-template-btn" onclick="applyTTTemplate('meeting')" style="padding:8px 14px;border-radius:20px;border:1px solid rgba(230,126,34,0.5);background:rgba(230,126,34,0.1);color:#e67e22;font-size:0.82rem;cursor:pointer">📅 Meetings</button>
+          <button type="button" class="tt-template-btn" onclick="applyTTTemplate('meal')" style="padding:8px 14px;border-radius:20px;border:1px solid rgba(26,188,156,0.5);background:rgba(26,188,156,0.1);color:#1abc9c;font-size:0.82rem;cursor:pointer">🍽️ Meal Plan</button>
+        </div>
+      </div>
+
+      <!-- AI Generator -->
+      <div style="background:linear-gradient(135deg,rgba(155,89,182,0.08),rgba(52,152,219,0.06));border:1px solid rgba(155,89,182,0.3);border-radius:12px;padding:14px;margin-bottom:18px">
+        <label style="font-size:0.85rem;color:#9b59b6;font-weight:600;display:block;margin-bottom:8px"><i class="fa fa-robot"></i> 🤖 Let AI Generate Your Timetable</label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="ttc-ai-prompt"
+            placeholder="e.g. School week Mon-Fri: Maths 8am, English 10am, Science 12pm, break at 1pm..."
+            style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(155,89,182,0.4);border-radius:8px;padding:10px 12px;color:var(--text1);font-size:0.88rem"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();generateAITimetable()}"/>
+          <button type="button" onclick="generateAITimetable()" id="ttc-ai-btn"
+            style="padding:10px 16px;background:linear-gradient(135deg,#9b59b6,#3498db);border:none;border-radius:8px;color:#fff;font-size:0.85rem;cursor:pointer;white-space:nowrap">
+            <i class="fa fa-wand-magic-sparkles"></i> Generate
           </button>
         </div>
-        <span class="voice-status" id="tt-voice-status"></span>
+        <p style="font-size:0.77rem;color:var(--text3);margin-top:6px">Describe what you want — the AI will build the full timetable for you instantly.</p>
       </div>
-    </div>
-    <div class="mf">
-      <button class="btn-cancel" onclick="closeModal('modal-tt1')" type="button">Cancel</button>
-      <button class="btn-save" onclick="goTTStep2()" type="button">Next <i class="fa fa-arrow-right"></i></button>
-    </div>
-  </div>
-</div>
 
-<!-- TIMETABLE MODAL STEP 2 -->
-<div id="modal-tt2" class="overlay" style="display:none">
-  <div class="modal modal-wide">
-    <div class="mh">
-      <h2 id="tt2-heading"></h2>
-      <button class="mclose" onclick="closeModal('modal-tt2')" type="button"><i class="fa fa-times"></i></button>
-    </div>
-    <div class="mb">
-      <div class="tt-type-badge" id="tt-type-badge"></div>
-      <div class="tt-columns-row">
-        <div class="fg" style="flex:1">
-          <label>Column Headers (comma separated)</label>
-          <input type="text" id="tt-cols" placeholder="e.g. Day, Subject, Time, Room" value="Day,Subject,Time,Venue"/>
+      <!-- Column Headers -->
+      <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:12px">
+        <div class="fg" style="flex:1;margin:0">
+          <label style="font-size:0.83rem;color:var(--text3)">Columns (comma-separated)</label>
+          <input type="text" id="ttc-cols" value="Day,Subject,Time,Venue"
+            style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text1);font-size:0.88rem;width:100%;box-sizing:border-box"/>
         </div>
-        <button class="btn-outline-sm" onclick="buildTTTable()" type="button"><i class="fa fa-table"></i> Apply</button>
+        <button type="button" onclick="rebuildTTCTable()" style="padding:10px 14px;background:rgba(240,192,64,0.15);border:1px solid rgba(240,192,64,0.4);border-radius:8px;color:var(--accent);font-size:0.85rem;cursor:pointer;white-space:nowrap">
+          <i class="fa fa-table"></i> Apply
+        </button>
+        <button type="button" onclick="addTTCRow()" style="padding:10px 14px;background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-size:0.85rem;cursor:pointer;white-space:nowrap">
+          <i class="fa fa-plus"></i> Row
+        </button>
       </div>
-      <div class="tt-table-wrap" id="tt-table-wrap"></div>
-      <button class="btn-outline-sm" style="margin-top:10px" onclick="addTTRow()" type="button"><i class="fa fa-plus"></i> Add Row</button>
+
+      <!-- Table -->
+      <div id="ttc-table-wrap" style="border-radius:10px;overflow:hidden;border:1px solid var(--border)"></div>
+
     </div>
     <div class="mf">
-      <button class="btn-cancel" onclick="backToTT1()" type="button"><i class="fa fa-arrow-left"></i> Back</button>
-      <button class="btn-save" onclick="saveTimetable()" type="button"><i class="fa fa-save"></i> Save Timetable</button>
+      <button class="btn-cancel" onclick="closeModal('modal-tt-create')" type="button">Cancel</button>
+      <button class="btn-save" onclick="saveTimetableNew()" type="button"><i class="fa fa-save"></i> Save Timetable</button>
     </div>
   </div>
 </div>

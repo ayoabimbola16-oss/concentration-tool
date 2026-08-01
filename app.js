@@ -1820,80 +1820,144 @@ async function snoozeAlarm(isRemote = false) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  TIMETABLE
+//  TIMETABLE — SMART UNIFIED CREATOR
 // ═══════════════════════════════════════════════════════════════
+
+const TT_TEMPLATES = {
+  school: {
+    name: 'School Week',
+    cols: ['Day', 'Subject', 'Time', 'Room', 'Teacher'],
+    rows: [
+      ['Monday', 'Mathematics', '08:00 - 09:30', 'Room 12', 'Mr. Adams'],
+      ['Monday', 'English', '09:45 - 11:15', 'Room 7', 'Mrs. Jane'],
+      ['Monday', 'Lunch Break', '12:00 - 13:00', '-', '-'],
+      ['Tuesday', 'Science', '08:00 - 09:30', 'Lab 3', 'Mr. Obi'],
+      ['Tuesday', 'History', '09:45 - 11:15', 'Room 5', 'Mrs. Kemi'],
+      ['Wednesday', 'Mathematics', '08:00 - 09:30', 'Room 12', 'Mr. Adams'],
+      ['Wednesday', 'Geography', '09:45 - 11:15', 'Room 9', 'Mr. Bello'],
+      ['Thursday', 'Biology', '08:00 - 09:30', 'Lab 1', 'Mrs. Tunde'],
+      ['Thursday', 'English', '09:45 - 11:15', 'Room 7', 'Mrs. Jane'],
+      ['Friday', 'Sports / PE', '09:00 - 11:00', 'Hall', 'Coach Seun'],
+    ]
+  },
+  work: {
+    name: 'Work Schedule',
+    cols: ['Day', 'Task / Meeting', 'Time', 'Location', 'Priority'],
+    rows: [
+      ['Monday', 'Team Standup', '09:00 - 09:30', 'Conference Room A', 'High'],
+      ['Monday', 'Project Review', '10:00 - 11:30', 'Online (Zoom)', 'High'],
+      ['Tuesday', 'Client Call', '11:00 - 12:00', 'Phone / Meet', 'High'],
+      ['Tuesday', 'Report Writing', '14:00 - 16:00', 'Office Desk', 'Medium'],
+      ['Wednesday', 'Weekly All-Hands', '09:30 - 10:30', 'Main Hall', 'High'],
+      ['Thursday', 'Deep Work Block', '09:00 - 12:00', 'Quiet Zone', 'High'],
+      ['Friday', 'Team Sync', '09:00 - 09:30', 'Conference B', 'Medium'],
+      ['Friday', 'Weekly Review', '16:00 - 17:00', 'Office', 'Low'],
+    ]
+  },
+  study: {
+    name: 'Study Plan',
+    cols: ['Day', 'Subject', 'Time', 'Topics', 'Goal'],
+    rows: [
+      ['Monday', 'Mathematics', '07:00 - 09:00', 'Algebra & Calculus', 'Complete Chapter 5'],
+      ['Monday', 'Physics', '19:00 - 21:00', 'Mechanics', 'Past Questions Practice'],
+      ['Tuesday', 'English', '07:00 - 08:30', 'Essay Writing', 'Write 2 essays'],
+      ['Tuesday', 'Chemistry', '19:00 - 21:00', 'Organic Chem', 'Review notes'],
+      ['Wednesday', 'Mathematics', '07:00 - 09:00', 'Statistics', 'Problem sets'],
+      ['Thursday', 'Biology', '19:00 - 21:00', 'Cell Biology', 'Diagrams revision'],
+      ['Friday', 'All Subjects', '09:00 - 12:00', 'Mock Exam Practice', 'Full past paper'],
+    ]
+  },
+  gym: {
+    name: 'Gym / Fitness Plan',
+    cols: ['Day', 'Workout', 'Time', 'Sets × Reps', 'Notes'],
+    rows: [
+      ['Monday', 'Chest & Triceps', '06:00 - 07:30', 'Bench Press 4×10', 'Increase weight'],
+      ['Monday', 'Push-ups', '06:00 - 07:30', '3×20', 'Warm up first'],
+      ['Tuesday', 'Back & Biceps', '06:00 - 07:30', 'Pull-ups 4×8', 'Full range of motion'],
+      ['Wednesday', 'Rest / Light Cardio', '06:00 - 06:30', '30 min jog', 'Active recovery'],
+      ['Thursday', 'Legs', '06:00 - 07:30', 'Squats 5×10', 'Use belt for heavy sets'],
+      ['Friday', 'Shoulders & Core', '06:00 - 07:30', 'Military Press 4×10', 'Slow negatives'],
+      ['Saturday', 'Full Body HIIT', '07:00 - 08:00', '20 min circuit', 'Keep heart rate up'],
+      ['Sunday', 'Rest & Stretch', '-', '-', 'Recovery day'],
+    ]
+  },
+  meeting: {
+    name: 'Meetings Schedule',
+    cols: ['Day', 'Meeting', 'Time', 'Attendees', 'Agenda'],
+    rows: [
+      ['Monday', 'Team Standup', '09:00', 'All Team', 'Daily progress update'],
+      ['Tuesday', 'Client Review', '11:00', 'Client + PM', 'Q3 deliverables'],
+      ['Wednesday', 'Product Demo', '14:00', 'Dev + Design', 'Sprint review'],
+      ['Thursday', 'Strategy Call', '10:00', 'Directors', 'Q4 Planning'],
+      ['Friday', 'Weekly Wrap', '16:00', 'All Team', 'Highlights & blockers'],
+    ]
+  },
+  meal: {
+    name: 'Meal Plan',
+    cols: ['Day', 'Meal', 'Time', 'Food Items', 'Calories'],
+    rows: [
+      ['Monday', 'Breakfast', '07:00', 'Oats, banana, milk', '~350 kcal'],
+      ['Monday', 'Lunch', '13:00', 'Rice, grilled chicken, salad', '~600 kcal'],
+      ['Monday', 'Dinner', '19:00', 'Pasta, vegetables, juice', '~500 kcal'],
+      ['Tuesday', 'Breakfast', '07:00', 'Eggs, toast, tea', '~300 kcal'],
+      ['Tuesday', 'Lunch', '13:00', 'Yam, egg sauce, veggies', '~550 kcal'],
+      ['Tuesday', 'Dinner', '19:00', 'Soup and bread', '~450 kcal'],
+      ['Wednesday', 'Breakfast', '07:00', 'Smoothie bowl, nuts', '~320 kcal'],
+      ['Wednesday', 'Lunch', '13:00', 'Jollof rice, fish, plantain', '~700 kcal'],
+      ['Wednesday', 'Dinner', '19:00', 'Light salad + protein shake', '~350 kcal'],
+    ]
+  }
+};
+
+let ttcEditId = null;
+
 function openTimetableModal(tt = null) {
-  ttEditId = tt ? tt.id : null;
-  document.getElementById('tt-type').value = tt?.tt_type || '';
-  document.getElementById('modal-tt1').style.display = 'flex';
-}
+  ttcEditId = tt ? tt.id : null;
+  const nameEl = document.getElementById('ttc-name');
+  const colsEl = document.getElementById('ttc-cols');
+  const wrap = document.getElementById('ttc-table-wrap');
+  const heading = document.getElementById('ttc-heading');
 
-function goTTStep2() {
-  const type = document.getElementById('tt-type').value.trim();
-  if (!type) { toast('Please enter a timetable type.','error'); return; }
-  document.getElementById('modal-tt1').style.display = 'none';
-  document.getElementById('tt2-heading').innerHTML = `<i class="fa fa-calendar-alt" style="color:var(--accent)"></i> ${escHtml(type)}`;
-  document.getElementById('tt-type-badge').innerHTML = `<strong>${escHtml(type)} Timetable</strong><br>Add your schedule rows below.`;
-  if (ttEditId) {
-    db.from('timetables').select('*').eq('id',ttEditId).single().then(({ data }) => {
-      if (!data) return;
-      if (data.columns) document.getElementById('tt-cols').value = data.columns.join(',');
-      buildTTTable();
-      if (data.rows) {
-        const tbody = document.querySelector('#tt-table-wrap tbody');
-        if (tbody) tbody.innerHTML = '';
-        data.rows.forEach(row => addTTRow(row));
-      }
-    });
+  if (nameEl) nameEl.value = tt?.tt_type || '';
+  if (colsEl) colsEl.value = tt?.columns?.join(',') || 'Day,Subject,Time,Venue';
+  if (wrap) wrap.innerHTML = '';
+  if (heading) heading.textContent = tt ? 'Edit Timetable' : 'Create Timetable';
+
+  if (tt) {
+    rebuildTTCTable();
+    if (tt.rows) tt.rows.forEach(r => addTTCRow(r));
   } else {
-    buildTTTable(); addTTRow(); addTTRow(); addTTRow();
+    rebuildTTCTable();
+    // Start with 3 empty rows
+    addTTCRow(); addTTCRow(); addTTCRow();
   }
-  document.getElementById('modal-tt2').style.display = 'flex';
+  openModal('modal-tt-create');
 }
 
-function backToTT1() { closeModal('modal-tt2'); document.getElementById('modal-tt1').style.display='flex'; }
-
-function buildTTTable() {
-  const cols = document.getElementById('tt-cols').value.split(',').map(c=>c.trim()).filter(Boolean);
-  if (!cols.length) { toast('Please enter column headers.','error'); return; }
-  const wrap = document.getElementById('tt-table-wrap');
-  const existingRows = wrap.querySelectorAll('tbody tr');
-  const rowData = [];
-  existingRows.forEach(tr => rowData.push(Array.from(tr.querySelectorAll('input')).map(i=>i.value)));
-  wrap.innerHTML = `<table class="tt-table">
-    <thead><tr>${cols.map(c=>`<th>${escHtml(c)}</th>`).join('')}<th style="width:36px"></th></tr></thead>
+function rebuildTTCTable() {
+  const cols = (document.getElementById('ttc-cols')?.value || '').split(',').map(c => c.trim()).filter(Boolean);
+  if (!cols.length) { toast('Please enter column names', 'error'); return; }
+  const wrap = document.getElementById('ttc-table-wrap');
+  const existRows = wrap ? Array.from(wrap.querySelectorAll('tbody tr')).map(tr =>
+    Array.from(tr.querySelectorAll('input')).map(i => i.value)) : [];
+  wrap.innerHTML = `<table class="tt-table" style="width:100%;border-collapse:collapse">
+    <thead><tr style="background:rgba(240,192,64,0.12)">${cols.map(c => `<th style="padding:10px 12px;text-align:left;font-size:0.82rem;color:var(--accent);font-weight:600;border-bottom:1px solid var(--border)">${escHtml(c)}</th>`).join('')}<th style="width:36px;border-bottom:1px solid var(--border)"></th></tr></thead>
     <tbody></tbody></table>`;
-  rowData.forEach(rd => addTTRow(rd));
+  existRows.forEach(r => addTTCRow(r));
 }
 
-function addTTRow(values = []) {
-  const cols  = document.getElementById('tt-cols').value.split(',').map(c=>c.trim()).filter(Boolean);
-  const tbody = document.querySelector('#tt-table-wrap tbody');
-  if (!tbody) { toast('Please apply column headers first.','error'); return; }
+function addTTCRow(values = []) {
+  const cols = (document.getElementById('ttc-cols')?.value || '').split(',').map(c => c.trim()).filter(Boolean);
+  const tbody = document.querySelector('#ttc-table-wrap tbody');
+  if (!tbody) { rebuildTTCTable(); return; }
   const tr = document.createElement('tr');
-  tr.innerHTML = cols.map((_,i)=>`<td><input type="text" value="${escHtml(values[i]||'')}" placeholder="..."/></td>`).join('')
-    + `<td><button class="tt-row-del" onclick="this.closest('tr').remove()" type="button"><i class="fa fa-times"></i></button></td>`;
+  tr.style.cssText = 'border-bottom:1px solid var(--border);transition:background .15s';
+  tr.innerHTML = cols.map((_, i) => `<td style="padding:4px 6px"><input type="text" value="${escHtml(values[i] || '')}" placeholder="—" style="width:100%;background:transparent;border:none;border-radius:4px;padding:7px 8px;color:var(--text1);font-size:0.88rem;outline:none;box-sizing:border-box" onfocus="this.style.background='rgba(255,255,255,0.06)'" onblur="this.style.background='transparent'"/></td>`).join('')
+    + `<td style="padding:4px;text-align:center"><button type="button" onclick="this.closest('tr').remove()" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:4px 6px;border-radius:4px;font-size:0.85rem" onmouseover="this.style.color='#e74c3c'" onmouseout="this.style.color='var(--text3)'"><i class="fa fa-times"></i></button></td>`;
   tbody.appendChild(tr);
-}
-
-async function saveTimetable() {
-  const type  = document.getElementById('tt-type').value.trim();
-  const cols  = document.getElementById('tt-cols').value.split(',').map(c=>c.trim()).filter(Boolean);
-  const tbody = document.querySelector('#tt-table-wrap tbody');
-  if (!tbody) { toast('Please build the table first.','error'); return; }
-  const rows = Array.from(tbody.querySelectorAll('tr')).map(tr=>Array.from(tr.querySelectorAll('input')).map(i=>i.value)).filter(r=>r.some(c=>c.trim()));
-  if (!type)        { toast('Timetable type is required.','error'); return; }
-  if (!rows.length) { toast('Please add at least one row.','error'); return; }
-  const payload = { user_id:currentUserId, tt_type:type, columns:cols, rows };
-  let error;
-  if (ttEditId) {
-    ({error} = await db.from('timetables').update(payload).eq('id',ttEditId).eq('user_id',currentUserId));
-  } else {
-    ({error} = await db.from('timetables').insert(payload));
-  }
-  if (error) { toast('Error saving timetable: '+error.message,'error'); return; }
-  toast(ttEditId?'Timetable updated!':'Timetable saved!','success');
-  closeModal('modal-tt2'); loadTimetables();
+  // Focus first empty cell
+  const firstInput = tr.querySelector('input');
+  if (firstInput && !values.length) setTimeout(() => firstInput.focus(), 50);
 }
 
 async function loadTimetables() {
