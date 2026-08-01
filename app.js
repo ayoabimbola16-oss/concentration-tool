@@ -5263,20 +5263,18 @@ function refreshConvoPreview(friendId, msg) {
 // ── Mark Read ───────────────────────────────────────────────────
 
 async function markMessagesRead(friendId) {
-  if (!currentUserId) return;
+  if (!currentUserId || !friendId) return;
   const now = new Date().toISOString();
   try {
-    await db.from('messages')
-      .update({ status: 'read', read_at: now, delivered_at: now })
+    const { error } = await db.from('messages')
+      .update({ is_read: true, status: 'read', read_at: now })
       .eq('receiver_id', currentUserId)
       .eq('sender_id', friendId)
-      .eq('status', 'sent');
+      .eq('is_read', false);
 
-    await db.from('messages')
-      .update({ status: 'read', read_at: now })
-      .eq('receiver_id', currentUserId)
-      .eq('sender_id', friendId)
-      .eq('status', 'delivered');
+    if (error) {
+      console.warn('[Chat] markMessagesRead DB error:', error.message);
+    }
   } catch (err) {
     console.warn('Failed to mark messages as read:', err);
   }
