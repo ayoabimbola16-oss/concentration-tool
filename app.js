@@ -5665,6 +5665,35 @@ let activeCallSeconds = 0;
 let isCallMuted = false;
 let isCallVideoOff = false;
 let activeCallMediaStream = null;
+let activeIncomingCallData = null;
+
+window.handleIncomingCallSignal = function(payload) {
+  if (!payload || payload.targetUserId !== currentUserId) return;
+
+  activeIncomingCallData = payload;
+  const nameEl = document.getElementById('inc-call-user-name');
+  const avatarEl = document.getElementById('inc-call-avatar');
+  const typeEl = document.getElementById('inc-call-type-text');
+
+  if (nameEl) nameEl.textContent = payload.callerName || 'Friend';
+  if (avatarEl) avatarEl.textContent = (payload.callerName || 'U').charAt(0).toUpperCase();
+  if (typeEl) typeEl.innerHTML = `<i class="fa fa-phone-volume fa-spin"></i> Incoming ${payload.callType === 'video' ? 'Video' : 'Voice'} Call...`;
+
+  openModal('modal-incoming-call');
+};
+
+window.acceptIncomingCall = function() {
+  if (!activeIncomingCallData) return;
+  const callType = activeIncomingCallData.callType || 'voice';
+  closeModal('modal-incoming-call');
+  startCall(callType);
+};
+
+window.declineIncomingCall = function() {
+  closeModal('modal-incoming-call');
+  toast('Call declined', 'info');
+  activeIncomingCallData = null;
+};
 
 window.startCall = async function(type) {
   if (!activeChatFriendId) { toast('Select a friend to call', 'error'); return; }
@@ -6249,51 +6278,55 @@ window.submitCustomAIPrompt = function() {
     const lower = prompt.toLowerCase();
     let reply = '';
     let actionBtnHtml = '';
+    const username = (currentUserProfile?.username || 'User').trim();
+    const upperUser = username.toUpperCase();
 
-    // 1. FINANCIAL / BUSINESS / MONEY INTENT
-    if (lower.includes('money') || lower.includes('earn') || lower.includes('business') || lower.includes('revenue') || lower.includes('income') || lower.includes('hustle')) {
-      reply = `Building sustainable income requires focusing on high-value skills and execution. Here are 3 proven paths:<br/><br/>
+    // 1. GREETING HANDLERS WITH USERNAME
+    if (lower.includes('good morning') || lower === 'morning') {
+      reply = `GOOD MORNING ${upperUser}! ☀️ How can I help you achieve your goals today?`;
+      actionBtnHtml = `<button class="btn-save" onclick="askAICoPilot('generate_timetable')" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-calendar"></i> Generate Today's Timetable</button>`;
+    } else if (lower.includes('good afternoon') || lower === 'afternoon') {
+      reply = `GOOD AFTERNOON ${upperUser}! 🌤️ Ready for your afternoon focus sprint?`;
+      actionBtnHtml = `<button class="btn-save" onclick="askAICoPilot('focus_advice')" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-stopwatch"></i> Start Focus Sprint</button>`;
+    } else if (lower.includes('good evening') || lower === 'evening') {
+      reply = `GOOD EVENING ${upperUser}! 🌙 How did your activities go today?`;
+      actionBtnHtml = `<button class="btn-save" onclick="askAICoPilot('reschedule_gaps')" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-calendar-check"></i> Review & Reschedule Gaps</button>`;
+    } else if (lower.includes('hello') || lower.includes('hi') || lower.includes('hey') || lower === 'sup' || lower === 'greetings') {
+      reply = `HELLO ${upperUser}! 👋 I am your PlanTrack AI Co-Pilot.<br/><br/>You have completed <strong>${ctx.sessionsToday} focus session(s)</strong> (${ctx.focusMinsToday} mins) today. How can I assist you?`;
+      actionBtnHtml = `<button class="btn-save" onclick="askAICoPilot('breakdown_tasks')" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-plus"></i> Breakdown Today's Tasks</button>`;
+    }
+    // 2. USER STATS & TOTAL ACTIVITY SUMMARY
+    else if (lower.includes('what have i done') || lower.includes('my stats') || lower.includes('my progress') || lower.includes('my activity') || lower.includes('summary')) {
+      reply = `📊 <strong>PlanTrack Activity Summary for ${username}:</strong><br/><br/>
+      ⏱️ <strong>Focus Today:</strong> ${ctx.sessionsToday} Session(s) (${ctx.focusMinsToday} Mins)<br/>
+      📋 <strong>Active Plans:</strong> ${ctx.activePlansCount} Active Plan(s)<br/>
+      ✅ <strong>Pending Tasks:</strong> ${ctx.pendingTasksCount} Task(s) Remaining<br/><br/>
+      <em>Keep up the great momentum!</em>`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-plus"></i> Add Tasks to Plan</button>`;
+    }
+    // 3. FINANCIAL / BUSINESS / MONEY INTENT
+    else if (lower.includes('money') || lower.includes('earn') || lower.includes('business') || lower.includes('revenue') || lower.includes('income') || lower.includes('hustle')) {
+      reply = `Building sustainable income requires focusing on high-value skills and execution, ${username}:<br/><br/>
       1️⃣ <strong>High-Ticket Freelancing:</strong> Master a specific skill (web development, AI workflows, copywriting, UI design) and offer service retainers to business owners.<br/>
       2️⃣ <strong>Digital Products & Tools:</strong> Build digital assets (notion templates, niche web tools, course guides) that earn recurring revenue.<br/>
       3️⃣ <strong>Agency / B2B Consulting:</strong> Help local or online businesses automate operations and solve bottlenecks.<br/><br/>
-      <em>The secret is dedicated daily focus. Would you like me to build a 30-day execution plan for your business goals?</em>`;
+      <em>Would you like me to build a 30-day execution plan for your business goals?</em>`;
       actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-rocket"></i> Create 30-Day Monetization Plan</button>`;
     }
-    // 2. DAY PLANNING / SCHEDULING INTENT
+    // 4. DAY PLANNING / SCHEDULING INTENT
     else if (lower.includes('plan my day') || lower.includes('schedule today') || lower.includes('plan today') || lower.includes('structure today')) {
-      reply = `I'd love to help structure your day! Tell me: <strong>What are your top 2-3 priorities for today, and what hours are you working?</strong><br/><br/>
+      reply = `I'd love to help structure your day, ${username}! Tell me: <strong>What are your top 2-3 priorities for today, and what hours are you working?</strong><br/><br/>
       In the meantime, here is an optimized daily structure you can apply immediately:`;
       actionBtnHtml = `<button class="btn-save" onclick="applyAIGeneratedTimetable()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-calendar-check"></i> Apply Standard 8-Hour Work & Study Day</button>`;
     }
-    // 3. TIMETABLE & ROUTINES
-    else if (lower.includes('timetable') || lower.includes('schedule') || lower.includes('routine') || lower.includes('work')) {
-      reply = `Based on your current activity (${ctx.pendingTasksCount} pending tasks and ${ctx.sessionsToday} focus sessions completed), here is an optimal routine for <em>"${escapeHtml(prompt)}"</em>: divide your day into 45-minute deep focus sprints separated by 10-minute breaks.`;
-      actionBtnHtml = `<button class="btn-save" onclick="applyAIGeneratedTimetable()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-plus"></i> Generate & Apply Timetable</button>`;
+    // 5. CODING & PYTHON INTENT
+    else if (lower.includes('code') || lower.includes('coding') || lower.includes('python') || lower.includes('javascript') || lower.includes('web')) {
+      reply = `For mastering <em>"${escapeHtml(prompt)}"</em>, ${username}: focus on building real projects (like PlanTrack's Python AI engine <strong>ai_engine.py</strong>) rather than watching endless tutorials! Break your learning into daily 45-minute coding sprints.`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-code"></i> Create 14-Day Coding Sprint Plan</button>`;
     }
-    // 4. STUDY & EXAMS
-    else if (lower.includes('study') || lower.includes('exam') || lower.includes('learn') || lower.includes('course')) {
-      reply = `For efficient studying on <em>"${escapeHtml(prompt)}"</em>:<br/><br/>
-      • Use <strong>Active Recall</strong> (test yourself instead of passive reading).<br/>
-      • Apply the <strong>Feynman Technique</strong> (explain concepts in simple terms).<br/>
-      • Work in 45-minute focus intervals with Binaural Alpha Waves.`;
-      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-graduation-cap"></i> Create Study Roadmap Plan</button>`;
-    }
-    // 5. HEALTH, FITNESS & HABITS
-    else if (lower.includes('health') || lower.includes('fitness') || lower.includes('gym') || lower.includes('habit') || lower.includes('sleep') || lower.includes('stress')) {
-      reply = `Great health fuels peak productivity! Key habits for <em>"${escapeHtml(prompt)}"</em>:<br/><br/>
-      • Drink 500ml water immediately upon waking.<br/>
-      • Schedule 30-45 minutes of physical movement daily.<br/>
-      • Protect 7-8 hours of sleep for cognitive recovery.`;
-      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-heartpulse"></i> Add Daily Health & Habit Plan</button>`;
-    }
-    // 6. CODING & TECH
-    else if (lower.includes('code') || lower.includes('coding') || lower.includes('javascript') || lower.includes('python') || lower.includes('web')) {
-      reply = `For mastering <em>"${escapeHtml(prompt)}"</em>: focus on building real projects rather than watching endless tutorials. Break your learning into daily 45-minute coding blocks and build small functional apps!`;
-      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-code"></i> Create 14-Day Coding Sprint</button>`;
-    }
-    // 7. GENERAL ACCURATE Q&A
+    // 6. GENERAL ACCURATE Q&A
     else {
-      reply = `Here is a tailored guide for <strong>"${escapeHtml(prompt)}"</strong>:<br/><br/>
+      reply = `Here is a tailored guide for <strong>"${escapeHtml(prompt)}"</strong>, ${username}:<br/><br/>
       To succeed with this, break the main goal down into small, daily manageable tasks. Consistency and focused execution will yield the best results.<br/><br/>
       <em>Would you like me to convert this into a step-by-step PlanTrack Plan or Timetable?</em>`;
       actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-wand-magic-sparkles"></i> Convert Prompt to Action Plan</button>`;

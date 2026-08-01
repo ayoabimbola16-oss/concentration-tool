@@ -1209,12 +1209,35 @@
   </div>
 </div>
 
+<!-- INCOMING VOICE / VIDEO CALL RINGING MODAL -->
+<div id="modal-incoming-call" class="overlay" style="display:none;z-index:9999">
+  <div class="modal modal-sm" style="text-align:center;padding:28px 20px;max-width:380px;background:#0d0d10;border:1px solid rgba(240,192,64,0.4);border-radius:20px;box-shadow:0 0 40px rgba(240,192,64,0.3)">
+    <div style="position:relative;width:90px;height:90px;margin:0 auto 16px auto">
+      <div id="inc-call-avatar" style="width:90px;height:90px;border-radius:50%;background:var(--accent);color:#000;font-size:2.2rem;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 30px rgba(240,192,64,0.4)">U</div>
+      <div class="call-pulse-ring" style="position:absolute;inset:-8px;border-radius:50%;border:2px solid var(--accent);animation:callPulse 1.2s infinite"></div>
+    </div>
+
+    <h3 id="inc-call-user-name" style="font-size:1.3rem;margin-bottom:4px;color:var(--text1)">Friend Name</h3>
+    <p id="inc-call-type-text" style="font-size:0.9rem;color:var(--accent);margin-bottom:24px"><i class="fa fa-phone-volume fa-spin"></i> Incoming Video Call...</p>
+
+    <!-- Ringing Action Buttons -->
+    <div style="display:flex;justify-content:center;align-items:center;gap:24px">
+      <button onclick="declineIncomingCall()" type="button" title="Decline Call" style="width:60px;height:60px;border-radius:50%;background:#e74c3c;border:none;color:#fff;font-size:1.4rem;cursor:pointer;box-shadow:0 6px 20px rgba(231,76,60,0.5);display:flex;align-items:center;justify-content:center">
+        <i class="fa fa-phone-slash"></i>
+      </button>
+      <button onclick="acceptIncomingCall()" type="button" title="Accept Call" style="width:64px;height:64px;border-radius:50%;background:#2ecc71;border:none;color:#fff;font-size:1.6rem;cursor:pointer;box-shadow:0 6px 25px rgba(46,204,113,0.6);display:flex;align-items:center;justify-content:center">
+        <i class="fa fa-phone"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ACTIVE VOICE / VIDEO CALL MODAL -->
 <div id="modal-active-call" class="overlay" style="display:none">
   <div class="modal modal-sm" style="text-align:center;padding:24px 20px;max-width:440px;background:#0d0d10;border:1px solid rgba(255,255,255,0.12);border-radius:18px">
     
-    <!-- Real-time Video Stream Container -->
-    <video id="local-video-stream" autoplay playsinline muted style="width:100%;height:220px;border-radius:14px;background:#000;object-fit:cover;display:none;margin-bottom:16px;border:1px solid rgba(255,255,255,0.15);box-shadow:0 8px 25px rgba(0,0,0,0.5)"></video>
+    <!-- Real-time Video Stream Container (Mirrored Front Camera) -->
+    <video id="local-video-stream" autoplay playsinline muted style="width:100%;height:230px;border-radius:14px;background:#000;object-fit:cover;transform:scaleX(-1);display:none;margin-bottom:16px;border:1px solid rgba(255,255,255,0.15);box-shadow:0 8px 25px rgba(0,0,0,0.5)"></video>
 
     <!-- Avatar for Voice Calls or Video Loading -->
     <div id="call-avatar-wrap" style="position:relative;width:90px;height:90px;margin:0 auto 16px auto">
