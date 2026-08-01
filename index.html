@@ -15,40 +15,33 @@
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 
-  <!-- ★ Landing Page Redirect: send first-time visitors to the landing page first -->
+  <!-- ★ First-visit redirect: new anonymous visitors see landing page first -->
   <script>
     (function() {
       try {
-        // Check if they've been to the landing page before
-        var hasVisited = localStorage.getItem('pt_visited_landing');
+        // Skip redirect if returning from Google OAuth (tokens in hash)
+        if (window.location.hash && window.location.hash.indexOf('access_token') !== -1) return;
 
-        // Robustly detect any Supabase session in localStorage
-        // (Supabase stores it under different keys depending on the project ref)
-        var hasSession = false;
+        // Skip redirect if user has already visited the landing page OR is logged in
+        var seenLanding = localStorage.getItem('pt_visited_landing');
+        if (seenLanding) return;
+
+        // Check for any active Supabase session in localStorage
         for (var i = 0; i < localStorage.length; i++) {
-          var k = localStorage.key(i);
-          if (k && (k.indexOf('supabase') !== -1 || k.indexOf('sb-') !== -1)) {
-            try {
-              var v = localStorage.getItem(k);
-              if (v && v.indexOf('access_token') !== -1) { hasSession = true; break; }
-            } catch(e) {}
+          var k = localStorage.key(i) || '';
+          if ((k.indexOf('supabase') !== -1 || k.indexOf('sb-') !== -1)) {
+            var v = '';
+            try { v = localStorage.getItem(k) || ''; } catch(e) {}
+            if (v.indexOf('access_token') !== -1) return; // logged in, skip redirect
           }
         }
 
-        // Also check URL hash for OAuth tokens (Google redirect callback)
-        if (window.location.hash && window.location.hash.indexOf('access_token') !== -1) {
-          hasSession = true;
-        }
+        // Check referrer — if they came FROM landing.html, don't redirect back
+        if ((document.referrer || '').indexOf('landing') !== -1) return;
 
-        // Redirect first-time anonymous visitors to landing page
-        if (!hasVisited && !hasSession) {
-          var ref = document.referrer || '';
-          var fromLanding = ref.indexOf('landing') !== -1 || ref.indexOf('landing.html') !== -1;
-          if (!fromLanding) {
-            window.location.replace('landing.html');
-          }
-        }
-      } catch(e) { /* ignore storage errors in private mode */ }
+        // New anonymous visitor — send them to the landing page first
+        window.location.replace('landing.html');
+      } catch(e) {}
     })();
   </script>
 
@@ -73,8 +66,10 @@
     <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
   </div>
   <div class="auth-box">
-    <div class="auth-logo"><img src="assets/images/logo.jpeg" class="logo-img" alt="Logo"/> PlanTrack</div>
-    <div class="auth-brand-line">CONCENTRATION TOOL</div>
+    <a href="landing.html" style="text-decoration:none;color:inherit">
+      <div class="auth-logo"><img src="assets/images/logo.jpeg" class="logo-img" alt="Logo"/> PlanTrack</div>
+      <div class="auth-brand-line">CONCENTRATION TOOL</div>
+    </a>
     <p class="auth-welcome" id="auth-welcome-text">Welcome back — sign in to continue</p>
 
     <div class="auth-tabs" id="auth-tabs">
@@ -131,6 +126,11 @@
     </div>
 
     <div id="auth-msg"></div>
+    <div style="text-align:center;margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.07)">
+      <a href="landing.html" style="color:var(--text3);font-size:0.8rem;text-decoration:none;display:inline-flex;align-items:center;gap:5px;transition:color .2s" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text3)'">
+        <i class="fa fa-arrow-left" style="font-size:0.72rem"></i> Back to Home
+      </a>
+    </div>
   </div>
 </div>
 
@@ -144,6 +144,9 @@
       <div class="tb-logo"><img src="assets/images/logo.jpeg" class="tb-logo-img" alt="Logo"/> PlanTrack</div>
     </div>
       <div class="tb-right">
+      <a href="landing.html" title="View Landing Page" style="display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:20px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:var(--text2);font-size:0.77rem;font-weight:600;text-decoration:none;margin-right:8px;transition:all .2s" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text2)'">
+        <i class="fa fa-globe"></i><span class="logout-text"> Home</span>
+      </a>
       <div class="pro-trial-chip" id="pro-trial-chip" onclick="openProModal()" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;background:linear-gradient(135deg,rgba(255,215,0,0.15),rgba(255,165,0,0.25));border:1px solid rgba(255,215,0,0.4);color:#ffd700;font-size:0.78rem;font-weight:600;cursor:pointer;margin-right:8px;" title="PlanTrack PRO Status">
         <i class="fa fa-crown"></i><span id="pro-trial-text">7 Days Trial</span>
       </div>
