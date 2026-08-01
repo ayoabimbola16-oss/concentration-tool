@@ -1,17 +1,39 @@
 # Dependencies
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Android build artifacts
+# Environment & Sensitive Keys
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+*.key
+
+# Temporary & Scratch Files
+scratch/
+*.tmp
+*.log
+
+# Android & Capacitor Build Artifacts
 android/.idea/
 android/app/build/
 android/.gradle/
 android/build/
+android/captures/
+www/build/
 
-# OS files
+# OS System Files
 .DS_Store
 Thumbs.db
+ehthumbs.db
 
-# IDE
+# IDE & Editor Settings
 .vscode/
+.idea/
 *.swp
 *.swo
+*.user

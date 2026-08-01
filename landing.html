@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PlanTrack — The Universal AI Productivity Suite</title>
+  <meta name="description" content="PlanTrack is the all-in-one AI productivity suite for students, teams, businesses, and individuals. Focus timers, automated timetables, Nexus chat, voice calls, and ChatGPT-style AI Co-Pilot.">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <style>
+    :root {
+      --bg: #09090b;
+      --bg-card: rgba(18, 18, 22, 0.75);
+      --accent: #f0c040;
+      --accent-glow: rgba(240, 192, 64, 0.35);
+      --accent-dark: #d4950f;
+      --text: #f4f4f6;
+      --text2: #a1a1aa;
+      --text3: #71717a;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-accent: rgba(240, 192, 64, 0.3);
+      --radius: 16px;
+      --font-heading: 'Outfit', sans-serif;
+      --font-body: 'Inter', sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* Ambient Background Glows */
+    .bg-glow-1 {
+      position: fixed;
+      top: -100px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 700px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(240,192,64,0.12) 0%, rgba(155,89,182,0.06) 50%, transparent 70%);
+      filter: blur(80px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .bg-glow-2 {
+      position: fixed;
+      bottom: 10%;
+      right: -100px;
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(52,152,219,0.08) 0%, transparent 70%);
+      filter: blur(90px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Header & Navigation */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(16px);
+      background: rgba(9, 9, 11, 0.85);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: var(--text);
+      font-family: var(--font-heading);
+      font-weight: 700;
+      font-size: 1.4rem;
+    }
+
+    .logo-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #000;
+      font-size: 1.1rem;
+      box-shadow: 0 0 15px var(--accent-glow);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text2);
+      text-decoration: none;
+      font-size: 0.95rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover {
+      color: var(--accent);
+    }
+
+    .btn-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 22px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+      color: #000;
+      font-family: var(--font-heading);
+      font-weight: 700;
+      font-size: 0.95rem;
+      text-decoration: none;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 20px var(--accent-glow);
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn-cta:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 25px rgba(240, 192, 64, 0.5);
+    }
+
+    .btn-outline {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 22px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+      font-family: var(--font-heading);
+      font-weight: 600;
+      font-size: 0.95rem;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .btn-outline:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Container */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Hero Section */
+    .hero-section {
+      padding: 90px 0 60px 0;
+      text-align: center;
+    }
+
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-radius: 20px;
+      background: rgba(240, 192, 64, 0.08);
+      border: 1px solid var(--border-accent);
+      color: var(--accent);
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 24px;
+    }
+
+    .hero-title {
+      font-family: var(--font-heading);
+      font-size: 3.5rem;
+      font-weight: 800;
+      line-height: 1.15;
+      margin-bottom: 20px;
+      letter-spacing: -1px;
+    }
+
+    .hero-title span {
+      background: linear-gradient(135deg, #fff 30%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-subtitle {
+      max-width: 720px;
+      margin: 0 auto 36px auto;
+      font-size: 1.15rem;
+      color: var(--text2);
+      line-height: 1.6;
+    }
+
+    .hero-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-bottom: 60px;
+      flex-wrap: wrap;
+    }
+
+    /* App Preview Card */
+    .preview-window {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(20px);
+      overflow: hidden;
+      margin-bottom: 100px;
+    }
+
+    .preview-header {
+      padding: 12px 20px;
+      background: rgba(0, 0, 0, 0.4);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .preview-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    .dot-red { background: #ff5f56; }
+    .dot-yellow { background: #ffbd2e; }
+    .dot-green { background: #27c93f; }
+
+    .preview-body {
+      padding: 30px;
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 24px;
+      min-height: 380px;
+      text-align: left;
+    }
+
+    .preview-sidebar {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .preview-menu-item {
+      padding: 10px 14px;
+      border-radius: 8px;
+      color: var(--text2);
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .preview-menu-item.active {
+      background: rgba(240, 192, 64, 0.12);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .preview-main {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    /* Target Audience Grid */
+    .section-header {
+      text-align: center;
+      margin-bottom: 50px;
+    }
+
+    .section-title {
+      font-family: var(--font-heading);
+      font-size: 2.2rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .section-desc {
+      color: var(--text2);
+      font-size: 1.05rem;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .audience-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 24px;
+      margin-bottom: 100px;
+    }
+
+    .audience-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      transition: transform 0.25s, border-color 0.25s;
+    }
+
+    .audience-card:hover {
+      transform: translateY(-5px);
+      border-color: var(--border-accent);
+    }
+
+    .audience-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: rgba(240, 192, 64, 0.1);
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.3rem;
+      margin-bottom: 18px;
+    }
+
+    .audience-card h4 {
+      font-family: var(--font-heading);
+      font-size: 1.25rem;
+      margin-bottom: 10px;
+    }
+
+    .audience-card p {
+      color: var(--text2);
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+
+    /* Features Grid */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+      margin-bottom: 100px;
+    }
+
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .feature-tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+
+    .feature-card h3 {
+      font-family: var(--font-heading);
+      font-size: 1.4rem;
+      margin-bottom: 12px;
+    }
+
+    .feature-card p {
+      color: var(--text2);
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    /* Pricing Section */
+    .pricing-container {
+      max-width: 900px;
+      margin: 0 auto 100px auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+    }
+
+    .price-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 36px 28px;
+      text-align: center;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .price-card.featured {
+      border: 2px solid var(--accent);
+      box-shadow: 0 0 40px rgba(240, 192, 64, 0.2);
+    }
+
+    .featured-badge {
+      position: absolute;
+      top: -14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--accent);
+      color: #000;
+      font-weight: 700;
+      font-size: 0.75rem;
+      padding: 4px 14px;
+      border-radius: 12px;
+      text-transform: uppercase;
+    }
+
+    .price-title {
+      font-family: var(--font-heading);
+      font-size: 1.3rem;
+      margin-bottom: 8px;
+    }
+
+    .price-amount {
+      font-family: var(--font-heading);
+      font-size: 2.8rem;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+
+    .price-period {
+      color: var(--text2);
+      font-size: 0.88rem;
+      margin-bottom: 24px;
+    }
+
+    .price-features {
+      list-style: none;
+      text-align: left;
+      margin-bottom: 30px;
+    }
+
+    .price-features li {
+      padding: 8px 0;
+      color: var(--text2);
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .price-features li i {
+      color: var(--accent);
+    }
+
+    /* FAQ Accordion */
+    .faq-container {
+      max-width: 800px;
+      margin: 0 auto 100px auto;
+    }
+
+    .faq-item {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+
+    .faq-question {
+      padding: 18px 24px;
+      font-family: var(--font-heading);
+      font-weight: 600;
+      font-size: 1.05rem;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .faq-answer {
+      padding: 0 24px 18px 24px;
+      color: var(--text2);
+      font-size: 0.95rem;
+      display: none;
+      line-height: 1.6;
+    }
+
+    .faq-item.open .faq-answer {
+      display: block;
+    }
+
+    .faq-item.open .faq-question i {
+      transform: rotate(180deg);
+      color: var(--accent);
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 50px 0;
+      background: rgba(9, 9, 11, 0.95);
+      text-align: center;
+      color: var(--text3);
+      font-size: 0.9rem;
+    }
+
+    footer a {
+      color: var(--text2);
+      text-decoration: none;
+      margin: 0 10px;
+    }
+
+    footer a:hover {
+      color: var(--accent);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .hero-title { font-size: 2.4rem; }
+      .preview-body { grid-template-columns: 1fr; }
+      .preview-sidebar { display: none; }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Ambient Glow Effects -->
+  <div class="bg-glow-1"></div>
+  <div class="bg-glow-2"></div>
+
+  <!-- Header -->
+  <header>
+    <div class="nav-container">
+      <a href="landing.html" class="logo-brand">
+        <div class="logo-icon"><i class="fa fa-bolt"></i></div>
+        <span>PlanTrack</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#audience">For Everyone</a></li>
+        <li><a href="#pricing">Pricing</a></li>
+        <li><a href="#faq">FAQ</a></li>
+      </ul>
+      <div style="display:flex;gap:12px;align-items:center">
+        <a href="index.html" class="btn-cta"><i class="fa fa-rocket"></i> Launch Web App</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero-section">
+    <div class="container">
+      <div class="badge-pill">
+        <i class="fa fa-sparkles"></i> Universal AI Productivity Suite • 7-Day Free Trial
+      </div>
+      <h1 class="hero-title">
+        Master Your Focus.<br>
+        <span>Automate Your Growth.</span>
+      </h1>
+      <p class="hero-subtitle">
+        PlanTrack combines ChatGPT-style conversational AI, binaural focus sessions, automated timetables, system alarms, and real-time Nexus chat to help students, freelancers, teams, and individuals accomplish more every day.
+      </p>
+      <div class="hero-buttons">
+        <a href="index.html" class="btn-cta" style="padding:14px 32px;font-size:1.05rem"><i class="fa fa-bolt"></i> Start 7-Day Free Trial</a>
+        <a href="#features" class="btn-outline" style="padding:14px 28px;font-size:1.05rem"><i class="fa fa-circle-play"></i> Explore Features</a>
+      </div>
+
+      <!-- Interactive App Mockup Preview -->
+      <div class="preview-window">
+        <div class="preview-header">
+          <div class="preview-dot dot-red"></div>
+          <div class="preview-dot dot-yellow"></div>
+          <div class="preview-dot dot-green"></div>
+          <span style="margin-left:12px;font-size:0.8rem;color:var(--text3)">plantrack.app/dashboard</span>
+        </div>
+        <div class="preview-body">
+          <div class="preview-sidebar">
+            <div class="preview-menu-item active"><i class="fa fa-chart-line"></i> Dashboard</div>
+            <div class="preview-menu-item"><i class="fa fa-robot"></i> AI Co-Pilot</div>
+            <div class="preview-menu-item"><i class="fa fa-stopwatch"></i> Focus Sprints</div>
+            <div class="preview-menu-item"><i class="fa fa-comments"></i> Nexus Chat</div>
+            <div class="preview-menu-item"><i class="fa fa-calendar-alt"></i> Timetables</div>
+          </div>
+          <div class="preview-main">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+              <div>
+                <h4 style="font-family:var(--font-heading);font-size:1.1rem">🔥 5-Day Focus Streak</h4>
+                <p style="font-size:0.85rem;color:var(--text2)">3 sessions completed today (135 mins)</p>
+              </div>
+              <span style="background:rgba(46,204,113,0.15);color:#2ecc71;padding:4px 12px;border-radius:12px;font-size:0.8rem;font-weight:600">PRO Active</span>
+            </div>
+            <div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px">
+              <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;color:var(--accent)">
+                <i class="fa fa-robot"></i> <strong>PlanTrack AI Co-Pilot:</strong>
+              </div>
+              <p style="font-size:0.88rem;color:var(--text2)">I've analyzed your daily goals and generated an optimized 3-step schedule for today's deep work blocks!</p>
+            </div>
+            <div style="display:flex;gap:10px">
+              <a href="index.html" class="btn-cta" style="flex:1;justify-content:center;font-size:0.88rem"><i class="fa fa-check"></i> Launch Live App Demo</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Target Audience Section -->
+  <section id="audience" style="padding:40px 0">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">Built for Everyone</h2>
+        <p class="section-desc">Whether you are studying for exams, building a business, or managing personal routines, PlanTrack adapts to your workflow.</p>
+      </div>
+
+      <div class="audience-grid">
+        <div class="audience-card">
+          <div class="audience-icon"><i class="fa fa-graduation-cap"></i></div>
+          <h4>For Students</h4>
+          <p>Schedule exam timetables, use active recall focus sprints, and automatically convert course schedules into step-by-step study plans.</p>
+        </div>
+        <div class="audience-card">
+          <div class="audience-icon"><i class="fa fa-laptop-code"></i></div>
+          <h4>For Freelancers & Creators</h4>
+          <p>Track client project deadlines, eliminate distractions with binaural soundscapes, and keep your daily work-life balance organized.</p>
+        </div>
+        <div class="audience-card">
+          <div class="audience-icon"><i class="fa fa-briefcase"></i></div>
+          <h4>For Teams & Businesses</h4>
+          <p>Share plans and timetables in Nexus Chat with 1-click import buttons, send audio voice notes, and jump on real camera video calls.</p>
+        </div>
+        <div class="audience-card">
+          <div class="audience-icon"><i class="fa fa-user-check"></i></div>
+          <h4>For Individuals</h4>
+          <p>Build lasting daily habits, set background alarms that ring even when your app is closed, and preserve your streaks with grace period protection.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Key Features Showcase -->
+  <section id="features" style="padding:60px 0">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">Powerful Core Features</h2>
+        <p class="section-desc">Designed to replace clutter with streamlined AI productivity.</p>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <span class="feature-tag">Conversational Intelligence</span>
+          <h3>🤖 PlanTrack Genius AI</h3>
+          <p>Ask anything about business, study routines, schedules, or life guidance. Conversational memory with 1-click timetable & plan generation.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-tag">Deep Work Engine</span>
+          <h3>⏱️ Binaural Focus Sprints</h3>
+          <p>Customizable Pomodoro intervals with embedded Alpha/Beta wave brainwave soundscapes and persistent timer recovery on refresh.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-tag">Team Collaboration</span>
+          <h3>💬 Nexus Chat & Video Calls</h3>
+          <p>Real-time messaging, audio voice note recording, real camera video calls, and 1-click shared plan & timetable import cards.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-tag">Background Service Worker</span>
+          <h3>⏰ Closed-App System Alarms</h3>
+          <p>Never miss a deadline. Background Service Workers ensure alarms and plan reminders ring loud with vibration sound and snooze actions.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-tag">Visual Scheduling</span>
+          <h3>📅 Dynamic Timetable Builder</h3>
+          <p>Construct visual schedules for school, business work, or weekly routines. Export, share, or import schedules with a single click.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-tag">Streak Protection</span>
+          <h3>🔥 Daily Streak & Recovery</h3>
+          <p>Stay motivated with streak counters and automatic 1-day grace period protection so life interruptions never reset your hard work.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Transparent Pricing Section -->
+  <section id="pricing" style="padding:60px 0">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">Simple, Ultra-Affordable Pricing</h2>
+        <p class="section-desc">Start with a 7-Day Free Trial. Upgrade anytime for less than a cup of coffee.</p>
+      </div>
+
+      <div class="pricing-container">
+        <!-- Trial Tier -->
+        <div class="price-card">
+          <div>
+            <h3 class="price-title">Free Trial</h3>
+            <div class="price-amount">$0</div>
+            <div class="price-period">First 7 Days Free</div>
+            <ul class="price-features">
+              <li><i class="fa fa-check"></i> Full Access to AI Co-Pilot</li>
+              <li><i class="fa fa-check"></i> Focus Timer & Soundscapes</li>
+              <li><i class="fa fa-check"></i> Nexus Chat & Voice Notes</li>
+              <li><i class="fa fa-check"></i> System Background Alarms</li>
+            </ul>
+          </div>
+          <a href="index.html" class="btn-outline" style="justify-content:center;width:100%">Start Free Trial</a>
+        </div>
+
+        <!-- Monthly PRO Tier -->
+        <div class="price-card featured">
+          <div class="featured-badge">Most Popular</div>
+          <div>
+            <h3 class="price-title">PlanTrack PRO</h3>
+            <div class="price-amount">$0.50</div>
+            <div class="price-period">per month</div>
+            <ul class="price-features">
+              <li><i class="fa fa-check"></i> Unlimited ChatGPT AI Sprints</li>
+              <li><i class="fa fa-check"></i> Real Camera Video & Voice Calls</li>
+              <li><i class="fa fa-check"></i> Shared Plan & Timetable Imports</li>
+              <li><i class="fa fa-check"></i> Cloud Storage & Backup</li>
+              <li><i class="fa fa-check"></i> Priority Background Notifications</li>
+            </ul>
+          </div>
+          <a href="index.html" class="btn-cta" style="justify-content:center;width:100%"><i class="fa fa-crown"></i> Get PRO ($0.50/mo)</a>
+        </div>
+
+        <!-- Yearly PRO Tier -->
+        <div class="price-card">
+          <div>
+            <h3 class="price-title">Yearly PRO</h3>
+            <div class="price-amount">$5.00</div>
+            <div class="price-period">per year (Save 17%)</div>
+            <ul class="price-features">
+              <li><i class="fa fa-check"></i> Everything in Monthly PRO</li>
+              <li><i class="fa fa-check"></i> 12 Months Uninterrupted Access</li>
+              <li><i class="fa fa-check"></i> Early Access to New Features</li>
+              <li><i class="fa fa-check"></i> VIP Customer Support</li>
+            </ul>
+          </div>
+          <a href="index.html" class="btn-outline" style="justify-content:center;width:100%">Get Yearly PRO</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive FAQ Section -->
+  <section id="faq" style="padding:60px 0">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">Frequently Asked Questions</h2>
+        <p class="section-desc">Everything you need to know about PlanTrack.</p>
+      </div>
+
+      <div class="faq-container">
+        <div class="faq-item open">
+          <div class="faq-question">
+            <span>How does the 7-Day Free Trial work?</span>
+            <i class="fa fa-chevron-down"></i>
+          </div>
+          <div class="faq-answer">
+            Every new account automatically receives 7 full days of PRO access for free! No credit card is required to get started. After 7 days, you can choose to subscribe for just $0.50/month.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">
+            <span>Do alarms ring when my app or browser tab is closed?</span>
+            <i class="fa fa-chevron-down"></i>
+          </div>
+          <div class="faq-answer">
+            Yes! PlanTrack uses background Service Workers and Web Notification TimestampTriggers so system alarms and plan reminders ring loud with vibration sound even when your browser or tab is completely closed.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">
+            <span>Can I share plans and timetables with friends or team members?</span>
+            <i class="fa fa-chevron-down"></i>
+          </div>
+          <div class="faq-answer">
+            Absolutely. Inside Nexus Chat, you can attach any plan or timetable. Receivers see an interactive preview card with a 1-click "Import to My Account" button to save it instantly.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">
+            <span>How do voice and video calls work?</span>
+            <i class="fa fa-chevron-down"></i>
+          </div>
+          <div class="faq-answer">
+            Inside Nexus Chat, click the Phone or Video icon. If the friend is online, it connects a real-time call with live camera video and microphone audio. If the friend is offline, it leaves a missed call message.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div style="margin-bottom:20px">
+        <a href="landing.html">Home</a> •
+        <a href="#features">Features</a> •
+        <a href="#pricing">Pricing</a> •
+        <a href="#faq">FAQ</a> •
+        <a href="index.html">Launch App</a>
+      </div>
+      <p>© 2026 PlanTrack Productivity Suite. Built for individuals, students, teams & organizations worldwide.</p>
+    </div>
+  </footer>
+
+  <script>
+    // FAQ Accordion Toggle
+    document.querySelectorAll('.faq-question').forEach(q => {
+      q.addEventListener('click', () => {
+        const item = q.parentElement;
+        item.classList.toggle('open');
+      });
+    });
+  </script>
+</body>
+</html>
