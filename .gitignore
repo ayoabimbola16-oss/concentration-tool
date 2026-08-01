@@ -1,10 +1,11 @@
-# Dependencies
+# ─── Dependencies ──────────────────────────────────────────────
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+package-lock.json
 
-# Environment & Sensitive Keys
+# ─── Environment & Secrets (NEVER commit these) ────────────────
 .env
 .env.local
 .env.development.local
@@ -12,28 +13,55 @@ yarn-error.log*
 .env.production.local
 *.pem
 *.key
+secrets.js
+secrets.json
 
-# Temporary & Scratch Files
+# ─── Temporary & Scratch Files ─────────────────────────────────
 scratch/
 *.tmp
 *.log
+*.bak
+*.orig
 
-# Android & Capacitor Build Artifacts
+# ─── Android & Capacitor Build Artifacts ───────────────────────
 android/.idea/
 android/app/build/
 android/.gradle/
 android/build/
 android/captures/
+android/app/release/
 www/build/
 
-# OS System Files
+# ─── OS System Files ───────────────────────────────────────────
 .DS_Store
+.DS_Store?
+._*
 Thumbs.db
 ehthumbs.db
+Desktop.ini
 
-# IDE & Editor Settings
+# ─── IDE & Editor Settings ─────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
 *.user
+*.suo
+*.ncb
+*.sln.docstates
+
+# ─── Build Output ──────────────────────────────────────────────
+dist/
+build/
+out/
+.cache/
+
+# ─── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.venv/

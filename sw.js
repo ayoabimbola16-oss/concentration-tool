@@ -17,7 +17,7 @@ const APP_FILES = [
   './config.js',
   './offline.js',
   './manifest.json',
-  './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+  './assets/images/logo.jpeg',
 ];
 
 const STATIC_FILES = [
@@ -272,8 +272,8 @@ async function scheduleOne(tag, title, body, timestampMs, requireInteraction) {
   const opts = {
     body,
     tag,
-    icon:    './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
-    badge:   './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+    icon:    './assets/images/logo.jpeg',
+    badge:   './assets/images/logo.jpeg',
     requireInteraction,
     renotify: true,
     vibrate: requireInteraction
@@ -516,8 +516,8 @@ async function checkPlanReminder() {
     : `You have ${total} activities pending across ${names.length} plans.`;
   await self.registration.showNotification('📋 Daily Activity Reminder', {
     body, tag: 'daily-plan-reminder',
-    icon: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
-    badge: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+    icon: './assets/images/logo.jpeg',
+    badge: './assets/images/logo.jpeg',
     vibrate: [200, 100, 200],
   });
   await saveData(firedKey, true);
@@ -529,8 +529,8 @@ async function checkPlanReminder() {
 async function showAlarmNotif(title, body, tag, requireInteraction) {
   return self.registration.showNotification(title, {
     body, tag, requireInteraction,
-    icon:    './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
-    badge:   './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+    icon:    './assets/images/logo.jpeg',
+    badge:   './assets/images/logo.jpeg',
     renotify: true,
     vibrate: requireInteraction
       ? [500, 200, 500, 200, 500, 200, 500]
@@ -550,8 +550,8 @@ async function showReminderNotif(alarm, minutesBefore) {
     {
       body:    `"${alarm.label}" rings at ${fmt12(alarm.time)}`,
       tag:     `remind${minutesBefore}-${alarm.id}`,
-      icon:    './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
-      badge:   './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+      icon:    './assets/images/logo.jpeg',
+      badge:   './assets/images/logo.jpeg',
       vibrate: [200, 100, 200],
       requireInteraction: false,
       actions: [{ action: 'open', title: 'Open App' }],

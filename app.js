@@ -2613,7 +2613,7 @@ function showPlanReminderNotification(plan, incomplete) {
       ? `Pending: ${incomplete.map(a=>a.text).join(', ')}`
       : `You have ${incomplete.length} pending activities.`;
     const notif = new Notification(`📋 ${plan.title} — Reminder`, {
-      body, icon:'./WhatsApp Image 2026-04-07 at 20.53.13.jpeg', tag:`plan-reminder-${plan.id}`, requireInteraction:false,
+      body, icon:'./assets/images/logo.jpeg', tag:`plan-reminder-${plan.id}`, requireInteraction:false,
     });
     notif.onclick = () => { window.focus(); showSection('plans'); notif.close(); };
     setTimeout(() => notif.close(), 8000);
@@ -3187,7 +3187,7 @@ function completeFocusSession() {
   if ('Notification' in window && Notification.permission === 'granted') {
     const n = new Notification('⏰ Focus Session Complete!', {
       body: `Great job! You focused for ${formatFocusTime(secsAdded)}.`,
-      icon: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+      icon: './assets/images/logo.jpeg',
       tag: 'focus-complete',
       requireInteraction: true,
     });
@@ -3750,7 +3750,7 @@ function scheduleStreakReminder() {
       if (Notification.permission === 'granted') {
         new Notification('🔥 Don\'t lose your streak!', {
           body: `You have a ${cs}-day streak! Open PlanTrack before midnight to keep it going.`,
-          icon: 'WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+          icon: 'assets/images/logo.jpeg',
           tag: 'streak-reminder'
         });
       }
@@ -3884,7 +3884,7 @@ async function checkSocialInteractions() {
           if ('Notification' in window && Notification.permission === 'granted') {
             new Notification('New Friend Request!', {
               body: `${senderName} wants to be your friend.`,
-              icon: 'WhatsApp Image 2026-04-07 at 20.53.13.jpeg'
+              icon: 'assets/images/logo.jpeg'
             });
           }
 

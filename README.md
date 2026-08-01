@@ -1,88 +1,151 @@
 # PlanTrack — Universal AI Productivity Suite
 
-[![Version](https://img.shields.io/badge/version-2.5.0-gold.svg)](https://github.com/ayoabimbola16-oss/concentration-tool)
+[![Version](https://img.shields.io/badge/version-3.0.0-gold.svg)](https://github.com/ayoabimbola16-oss/concentration-tool)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-active-brightgreen.svg)](https://github.com/ayoabimbola16-oss/concentration-tool)
+[![PWA](https://img.shields.io/badge/PWA-ready-blueviolet.svg)](manifest.json)
 
-**PlanTrack** is an all-in-one, AI-powered productivity suite designed for students, freelancers, remote teams, businesses, and individuals. It replaces scattered productivity tools with a single unified platform combining ChatGPT-style AI assistance, binaural focus timers, visual timetables, Nexus chat with real camera video calls, and closed-app background alarms.
+> **PlanTrack** is an all-in-one AI-powered productivity suite for students, teams, businesses, and individuals — combining ChatGPT-style AI, binaural focus timers, smart timetables, Nexus real-time chat, voice/video calls, and background alarms.
 
 ---
 
 ## 🌟 Key Features
 
-### 🤖 1. PlanTrack Genius AI Co-Pilot
-- **Conversational Q&A**: Multi-turn chat memory capable of answering general questions across business strategy, study roadmaps, health habits, coding, and day planning.
-- **Context-Aware Recommendations**: Leverages real-time app activity (completed focus sessions, pending tasks, active streaks).
-- **1-Click Action Sprints**: Convert AI responses directly into actionable PlanTrack Plans & Timetables with a single click.
-
-### ⏱️ 2. Binaural Focus Timer & Streak Recovery
-- **Pomodoro & Custom Intervals**: Flexible focus blocks with active state persistence across page refreshes.
-- **Embedded Soundscapes**: High-quality Alpha Wave, Beta Wave, Pink Noise, and Rain soundscapes.
-- **1-Day Grace Period Protection**: Automatic streak protection so unexpected life events don't wipe out your hard work.
-
-### 💬 3. Nexus Chat, Voice Notes & Video Calls
-- **Real-Time Messaging**: Built on Supabase real-time engine with online status indicators.
-- **🎤 Audio Voice Notes**: Built-in Web MediaRecorder to record and play voice notes inside chat bubbles.
-- **📞 Live Voice & Camera Video Calls**: Connects real-time WebRTC audio and live camera video feeds.
-- **📋 Shared Attachment Cards**: Share Timetables, Plans, and Files in chat with 1-click **"Import to My Account"** buttons for both sender and receiver.
-
-### ⏰ 4. Closed-App System Alarms & Reminders
-- **Background Service Workers**: Web Notification TimestampTriggers keep alarms firing loud with system vibration and audio alerts even when browser tabs are closed.
-- **Action Buttons**: 1-click **Snooze (10m)** and **Dismiss** directly from system notifications.
-
-### 📅 5. Dynamic Timetable & Plan Manager
-- **Visual Schedule Builder**: Create weekly class schedules, business shifts, or study blocks.
-- **Activity Tracker**: Detailed progress bars, milestone checklists, and completion analytics.
-
-### 👑 6. PlanTrack PRO Subscription System
-- **7-Day Free Trial**: Automatic 7 days of full PRO features upon registration.
-- **Accessible Pricing**: **$0.50 / month** ($5.00 / year) subscription options.
+| Feature | Description |
+|---|---|
+| 🤖 **AI Co-Pilot** | Conversational AI that knows your full app activity — tasks, streaks, friends, timetables |
+| ⏱️ **Focus Timer** | Pomodoro + binaural soundscapes (Alpha, Beta, Pink Noise, Rain) |
+| 📅 **Smart Timetable** | Visual column-chip builder + 6 templates + AI auto-generation |
+| 💬 **Nexus Chat** | Real-time messaging, voice notes, file sharing, idea cards |
+| 📞 **Video & Voice Calls** | WebRTC peer-to-peer calls with camera mirroring |
+| ⏰ **Background Alarms** | Service Worker alarms that fire even when browser is closed |
+| 📁 **File Manager** | Upload, organize, and share files in folders |
+| 📋 **Plans & Activities** | Milestone trackers with progress bars |
+| 👑 **PRO Subscription** | 7-day free trial · $0.50/month · $5.00/year |
 
 ---
 
-## 🛠️ Technology Stack
-
-- **Frontend**: HTML5, Vanilla CSS3 (Dark Glassmorphism UI), JavaScript ES6+
-- **Backend / Database**: PostgreSQL (Supabase Auth, Realtime, Storage & RLS Policies)
-- **Service Worker**: PWA Service Worker (`sw.js`) with Web Push & TimestampTrigger Notification API
-- **Mobile Bridge**: Capacitor (`@capacitor/android`, `@capacitor/local-notifications`)
-
----
-
-## 📁 Repository Structure
+## 📁 Project Structure
 
 ```
 PlanTrack/
-├── index.html                 # Main Web Application Hub
-├── landing.html               # Clean Product Landing & Marketing Page
-├── styles.css                 # Master Glassmorphism CSS Design System
-├── app.js                     # Core Application Logic, AI Engine & Chat
-├── sw.js                      # Background Service Worker for Closed-App Alarms
-├── alarm-service.js           # Alarm Audio & Schedule Manager
-├── master-schema.sql          # Consolidated PostgreSQL Database Setup Script
-├── config.js                  # Supabase Environment Configuration
-└── assets/                    # Branding Icons & Media Assets
+│
+├── 🌐 FRONTEND (Web App)
+│   ├── landing.html            Entry point — marketing/product landing page
+│   ├── index.html              Main web application (shown after login)
+│   ├── styles.css              Master CSS design system (dark glassmorphism)
+│   ├── app.js                  Core application logic, AI engine, chat, alarms
+│   ├── sw.js                   Background Service Worker (closed-app alarms)
+│   ├── alarm-service.js        Cross-platform alarm adapter (Web + Android)
+│   ├── offline.js              PWA offline handler + notification permission
+│   └── config.js               Supabase environment configuration
+│
+├── 📱 MOBILE (Android via Capacitor)
+│   ├── capacitor.config.json   Capacitor bridge configuration
+│   ├── android/                Android Studio project (generated)
+│   └── www/                    Capacitor web bundle output
+│
+├── 🗄️ DATABASE (Supabase / PostgreSQL)
+│   ├── database/
+│   │   ├── README.md           ← Read this before running any SQL
+│   │   ├── master-schema.sql   ← Run this for fresh install (all-in-one)
+│   │   └── migrations/         Individual migration files (for upgrades only)
+│
+├── 🖼️ ASSETS
+│   └── assets/
+│       └── images/
+│           ├── logo.jpeg           App logo (used in UI + notifications)
+│           ├── logo-alt.jpeg       Alternate logo
+│           └── plantrack_icon.png  PWA icon
+│
+├── 📚 DOCS
+│   └── docs/
+│       ├── ai_engine.py        Python AI engine reference implementation
+│       └── models.json         AI model configuration reference
+│
+├── 📄 PROJECT FILES
+│   ├── manifest.json           PWA web app manifest
+│   ├── package.json            Node dependencies (Capacitor CLI)
+│   ├── .gitignore              Git ignore rules
+│   └── README.md               This file
 ```
 
 ---
 
-## 🚀 Quick Setup & Installation
+## 🚀 Quick Start
 
-### 1. Database Setup (Supabase)
-1. Open your **Supabase Project Dashboard** -> **SQL Editor**.
-2. Run the consolidated setup script: [`master-schema.sql`](master-schema.sql).
-3. This creates all necessary tables (`profiles`, `alarms`, `timetables`, `plans`, `focus_sessions`, `friends`, `messages`), Row-Level Security (RLS) policies, and PRO columns.
+### 1. Database Setup (Supabase — do this first)
 
-### 2. Running Locally
-Simply open `landing.html` or `index.html` in your browser or run a local dev server:
+1. Open your **Supabase Project Dashboard → SQL Editor**
+2. Run: [`database/master-schema.sql`](database/master-schema.sql)
+3. This creates all tables, RLS policies, and PRO columns in one shot
+
+> See [`database/README.md`](database/README.md) for the full migration guide.
+
+### 2. Configure Supabase Keys
+
+Edit [`config.js`](config.js) and add your project URL and anon key:
+```js
+const SUPABASE_URL  = 'https://your-project.supabase.co';
+const SUPABASE_ANON = 'your-anon-key-here';
+```
+
+### 3. Run the Web App
 
 ```bash
-# Using VS Code Live Server or python HTTP server:
+# Open in browser directly:
+open landing.html
+
+# Or serve locally with Python:
 python -m http.server 5500
+# Then open: http://localhost:5500/landing.html
 ```
-Open `http://127.0.0.1:5500/landing.html` in your browser.
+
+### 4. Build for Android (Optional)
+
+```bash
+npm install
+npx cap sync android
+npx cap open android   # Opens Android Studio
+```
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Frontend** | HTML5, Vanilla CSS3, JavaScript ES6+ |
+| **Backend / DB** | Supabase (PostgreSQL + Auth + Realtime + Storage) |
+| **PWA** | Service Worker, Web Push, TimestampTrigger |
+| **Mobile** | Capacitor (Android bridge) |
+| **AI** | Gemini API (via config.js key) |
+| **Fonts** | Google Fonts — Playfair Display, DM Sans |
+
+---
+
+## 📱 App Flow
+
+```
+New User:    landing.html → Sign Up → Complete Profile → App Dashboard
+Returning:   index.html   → Auto-login → App Dashboard
+```
+
+---
+
+## 🔔 Background Alarms
+
+Alarms work in three modes:
+1. **App open**: Direct JavaScript alarm checker (every 30s)
+2. **Browser open, tab closed**: Service Worker periodic sync
+3. **Browser closed (Android PWA)**: Native AlarmManager via Capacitor
 
 ---
 
 ## 📄 License
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+MIT License — see [LICENSE](LICENSE) for details.
+
+---
+
+*Built with ❤️ by the PlanTrack Team*
