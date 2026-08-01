@@ -36,12 +36,12 @@
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_ANON, {
   auth: {
-    persistSession: true,         // store session in localStorage
-    autoRefreshToken: true,       // auto-refresh expired tokens
-    detectSessionInUrl: true,     // parse OAuth tokens from URL hash/query
-    storageKey: 'plantrack-auth', // explicit custom storage key
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
   }
 });
+
 
 
 
@@ -2740,7 +2740,25 @@ window.startSubscription = function() {
     }
   };
 
-  // 1. Set up Auth State Change Listener FIRST
+  // 1. Detect OAuth redirect errors (e.g. #error=unauthorized_client or ?error=...)
+  const rawHash   = window.location.hash   || '';
+  const rawSearch = window.location.search || '';
+  const errParams = new URLSearchParams(
+    rawHash.startsWith('#') ? rawHash.substring(1) : rawSearch
+  );
+
+  if (errParams.has('error') || errParams.has('error_description')) {
+    const errCode = errParams.get('error') || '';
+    const errDesc = errParams.get('error_description') || errCode || 'Google sign-in failed';
+    const cleanDesc = decodeURIComponent(errDesc).replace(/\+/g, ' ');
+    console.error('[OAuth Redirect Error]:', errCode, cleanDesc);
+    showAuthMsg(`Google sign-in error: ${cleanDesc}`);
+    if (window.location.hash || window.location.search) {
+      history.replaceState(null, '', window.location.pathname);
+    }
+  }
+
+  // 2. Set up Auth State Change Listener FIRST
   db.auth.onAuthStateChange(async (event, session) => {
     console.log('[Auth Listener]', event, session?.user?.email);
 
@@ -2752,7 +2770,7 @@ window.startSubscription = function() {
         closeAuthMsg();
         await initApp(session.user);
       }
-      // Clean URL parameters after OAuth login completes
+      // Clean URL hash/query parameters after OAuth login completes
       if ((window.location.hash || '').includes('access_token') || (window.location.search || '').includes('code=')) {
         history.replaceState(null, '', window.location.pathname);
       }
@@ -2766,7 +2784,7 @@ window.startSubscription = function() {
     }
   });
 
-  // 2. Perform initial session check
+  // 3. Perform initial session check
   try {
     const { data: { session } } = await db.auth.getSession();
     if (session?.user) {
@@ -2782,6 +2800,7 @@ window.startSubscription = function() {
   } finally {
     hideSplash();
   }
+
 
 
   // Handle Capacitor deep links (when the app is opened via a custom URL scheme)
