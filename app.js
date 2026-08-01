@@ -720,11 +720,13 @@ async function register() {
       if (profileErr) {
         console.warn('Profile upsert failed during register, will complete on login:', profileErr.message);
       }
-      showAuthMsg('Account created! You can now sign in.', 'success');
+      showAuthMsg('Account created! Check your email to confirm, then sign in.', 'success');
       document.getElementById('r-user').value = '';
       document.getElementById('r-email').value = '';
       document.getElementById('r-pass').value = '';
-      setTimeout(() => switchTab('login'), 1500);
+      const confirmEl = document.getElementById('r-pass-confirm');
+      if (confirmEl) confirmEl.value = '';
+      setTimeout(() => switchTab('login'), 2000);
     }
   } catch (err) {
     showAuthMsg('An error occurred. Please try again.');
