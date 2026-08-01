@@ -5039,11 +5039,17 @@ function buildMessageRow(msg, isGrouped = false, groupClass = '') {
   return row;
 }
 
+window.sharedAttachmentsCache = window.sharedAttachmentsCache || {};
+
 function buildSharedCard(msg) {
   let att = msg.attachment || {};
   if (typeof att === 'string') {
     try { att = JSON.parse(att); } catch(e) { att = {}; }
   }
+
+  // Cache attachment by message ID or synthetic key
+  const cacheKey = msg.id || ('att_' + Math.random().toString(36).substring(2, 9));
+  window.sharedAttachmentsCache[cacheKey] = att;
 
   const type = msg.type || msg.attachment_type || '';
   const url = msg.attachment_url || att.audio_url || att.url || '';
@@ -5059,10 +5065,10 @@ function buildSharedCard(msg) {
 
   if (type === 'timetable') {
     iconClass = 'timetable'; icon = 'fa-calendar-alt';
-    title = att.name || att.title || 'Timetable';
+    title = att.name || att.title || att.tt_type || 'Timetable';
     meta = att.slots ? `${att.slots} slots` : 'Timetable Schedule';
     typeLabel = 'Timetable'; actionLabel = 'View & Import';
-    onClickFn = `viewSharedTimetable(${JSON.stringify(att).replace(/"/g, '&quot;')})`;
+    onClickFn = `viewSharedTimetableById('${cacheKey}')`;
   } else if (type === 'file') {
     iconClass = 'file'; icon = 'fa-file';
     title = att.name || 'Shared File';
@@ -5075,7 +5081,7 @@ function buildSharedCard(msg) {
     const planDuration = att.duration || att.type || '';
     meta = planDuration ? `${planDuration} plan` : 'Activities Plan';
     typeLabel = 'Plan'; actionLabel = 'View & Save';
-    onClickFn = `viewSharedPlan(${JSON.stringify(att).replace(/"/g, '&quot;')})`;
+    onClickFn = `viewSharedPlanById('${cacheKey}')`;
   }
 
   return `<div class="shared-card">
@@ -5092,6 +5098,16 @@ function buildSharedCard(msg) {
     </div>
   </div>`;
 }
+
+window.viewSharedPlanById = function(cacheKey) {
+  const att = window.sharedAttachmentsCache[cacheKey] || {};
+  viewSharedPlan(att);
+};
+
+window.viewSharedTimetableById = function(cacheKey) {
+  const att = window.sharedAttachmentsCache[cacheKey] || {};
+  viewSharedTimetable(att);
+};
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -5648,15 +5664,21 @@ let activeCallTimer = null;
 let activeCallSeconds = 0;
 let isCallMuted = false;
 let isCallVideoOff = false;
+let activeCallMediaStream = null;
 
-window.startCall = function(type) {
+window.startCall = async function(type) {
   if (!activeChatFriendId) { toast('Select a friend to call', 'error'); return; }
   const name = document.getElementById('chat-header-name')?.textContent || 'Friend';
   const avatar = document.getElementById('chat-header-avatar')?.innerHTML || 'U';
+  const rawStatus = (document.getElementById('chat-header-status')?.textContent || '').toLowerCase();
+
+  const isUserOnline = rawStatus.includes('online') && !rawStatus.includes('offline');
 
   const userEl = document.getElementById('call-user-name');
   const avatarEl = document.getElementById('call-avatar');
   const statusEl = document.getElementById('call-status-text');
+  const videoEl = document.getElementById('local-video-stream');
+  const avatarWrap = document.getElementById('call-avatar-wrap');
 
   if (userEl) userEl.textContent = name;
   if (avatarEl) avatarEl.innerHTML = avatar;
@@ -5664,7 +5686,41 @@ window.startCall = function(type) {
 
   openModal('modal-active-call');
 
-  // Simulate call connection after 2s
+  // Request camera & mic access for Video calls
+  if (type === 'video' && videoEl) {
+    try {
+      activeCallMediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      videoEl.srcObject = activeCallMediaStream;
+      videoEl.style.display = 'block';
+      if (avatarWrap) avatarWrap.style.display = 'none';
+    } catch (e) {
+      console.warn('Camera access denied or unequipped:', e);
+      toast('Camera unavailable or permission denied.', 'info');
+      if (videoEl) videoEl.style.display = 'none';
+      if (avatarWrap) avatarWrap.style.display = 'block';
+    }
+  } else {
+    if (videoEl) videoEl.style.display = 'none';
+    if (avatarWrap) avatarWrap.style.display = 'block';
+  }
+
+  if (!isUserOnline) {
+    // Target user is offline — ring briefly then notify offline status
+    setTimeout(() => {
+      if (statusEl) {
+        statusEl.style.color = '#e74c3c';
+        statusEl.innerHTML = `<i class="fa fa-phone-slash"></i> ${escapeHtml(name)} is currently offline`;
+      }
+      setTimeout(async () => {
+        endCall();
+        toast(`${name} is offline. Missed call message sent.`, 'info');
+        await sendRawMessage('text', `📞 Missed ${type} call`, null);
+      }, 2500);
+    }, 3500);
+    return;
+  }
+
+  // Target user is online — connect call
   setTimeout(() => {
     if (statusEl) {
       statusEl.style.color = '#2ecc71';
@@ -5682,6 +5738,12 @@ window.startCall = function(type) {
 
 window.endCall = function() {
   if (activeCallTimer) clearInterval(activeCallTimer);
+  if (activeCallMediaStream) {
+    activeCallMediaStream.getTracks().forEach(track => track.stop());
+    activeCallMediaStream = null;
+  }
+  const videoEl = document.getElementById('local-video-stream');
+  if (videoEl) { videoEl.srcObject = null; videoEl.style.display = 'none'; }
   closeModal('modal-active-call');
   toast('Call ended', 'info');
 };
@@ -6063,62 +6125,88 @@ window.openAICoPilot = function() {
 };
 
 window.askAICoPilot = function(actionType) {
-  const area = document.getElementById('ai-response-area');
-  if (!area) return;
+  const log = document.getElementById('ai-chat-log');
+  if (!log) return;
 
   const ctx = getActivityContext();
-  area.innerHTML = `<div style="text-align:center;padding:20px"><i class="fa fa-spinner fa-spin" style="font-size:1.8rem;color:var(--accent)"></i><p style="margin-top:10px;color:var(--text2)">AI Co-Pilot is analyzing your activities...</p></div>`;
+  const loadingId = 'ai-load-' + Date.now();
+  const loadingRow = document.createElement('div');
+  loadingRow.id = loadingId;
+  loadingRow.style.cssText = 'display:flex;gap:10px;align-items:flex-start';
+  loadingRow.innerHTML = `
+    <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#9b59b6,#3498db);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1rem;flex-shrink:0"><i class="fa fa-robot"></i></div>
+    <div style="background:rgba(255,255,255,0.06);padding:12px 16px;border-radius:12px;font-size:0.9rem;color:var(--text3)">
+      <i class="fa fa-spinner fa-spin"></i> AI Co-Pilot is analyzing your activities...
+    </div>
+  `;
+  log.appendChild(loadingRow);
+  log.scrollTop = log.scrollHeight;
 
   setTimeout(() => {
+    loadingRow.remove();
+    let contentHtml = '';
+
     if (actionType === 'generate_timetable') {
-      area.innerHTML = `
-        <div style="background:rgba(255,215,0,0.06);border-left:3px solid #ffd700;padding:12px 16px;border-radius:6px;margin-bottom:12px">
-          <strong>🤖 Suggested Universal Work & Focus Timetable</strong>
+      contentHtml = `
+        <div style="background:rgba(255,215,0,0.08);border-left:3px solid #ffd700;padding:10px 14px;border-radius:6px;margin-bottom:10px">
+          <strong>🤖 Universal Work & Focus Timetable</strong>
         </div>
-        <p>Based on your current ${ctx.pendingTasksCount} pending tasks, here is an optimized daily timetable schedule:</p>
-        <ul style="margin-left:20px;margin-bottom:14px">
-          <li><strong>08:30 AM - 10:00 AM:</strong> Deep Work Block #1 (Highest Priority Tasks)</li>
-          <li><strong>10:00 AM - 10:15 AM:</strong> Brain Break & Binaural Waves</li>
+        Based on your current ${ctx.pendingTasksCount} pending tasks, here is an optimized timetable schedule:
+        <ul style="margin-left:18px;margin-top:8px;margin-bottom:12px">
+          <li><strong>08:30 AM - 10:00 AM:</strong> Deep Work Block #1 (Highest Priority)</li>
+          <li><strong>10:00 AM - 10:15 AM:</strong> Rest & Binaural Beats Soundscape</li>
           <li><strong>10:15 AM - 12:00 PM:</strong> Communications & Team Sync</li>
           <li><strong>01:30 PM - 03:00 PM:</strong> Deep Work Block #2</li>
-          <li><strong>04:00 PM - 04:30 PM:</strong> Daily Review & Activity Check-off</li>
+          <li><strong>04:00 PM - 04:30 PM:</strong> Daily Review & Task Check-off</li>
         </ul>
-        <button class="btn-save" onclick="applyAIGeneratedTimetable()" type="button" style="padding:8px 16px;font-size:0.85rem"><i class="fa fa-check"></i> Apply This Timetable to My Account</button>
+        <button class="btn-save" onclick="applyAIGeneratedTimetable()" type="button" style="padding:6px 14px;font-size:0.82rem"><i class="fa fa-check"></i> Apply This Timetable to My Account</button>
       `;
     } else if (actionType === 'breakdown_tasks') {
-      area.innerHTML = `
-        <div style="background:rgba(46,204,113,0.06);border-left:3px solid #2ecc71;padding:12px 16px;border-radius:6px;margin-bottom:12px">
+      contentHtml = `
+        <div style="background:rgba(46,204,113,0.08);border-left:3px solid #2ecc71;padding:10px 14px;border-radius:6px;margin-bottom:10px">
           <strong>🤖 Smart Task Decomposition</strong>
         </div>
-        <p>AI Analyzed your active plans. Here is a recommended 3-step action breakdown for today:</p>
-        <ol style="margin-left:20px;margin-bottom:14px">
-          <li><strong>Step 1:</strong> Focus 25 mins on top priority deliverable.</li>
-          <li><strong>Step 2:</strong> Check off 2 pending activities in your Daily Plan.</li>
-          <li><strong>Step 3:</strong> Share progress update in Nexus Chat with your team/friends.</li>
+        Here is a recommended 3-step action breakdown for today:
+        <ol style="margin-left:18px;margin-top:8px;margin-bottom:12px">
+          <li>Focus 25 mins on your top priority deliverable.</li>
+          <li>Check off 2 pending activities in your Daily Plan.</li>
+          <li>Share progress update in Nexus Chat with your team/friends.</li>
         </ol>
-        <button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="padding:8px 16px;font-size:0.85rem"><i class="fa fa-plus"></i> Add Tasks to Daily Plan</button>
+        <button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="padding:6px 14px;font-size:0.82rem"><i class="fa fa-plus"></i> Add Tasks to Daily Plan</button>
       `;
     } else if (actionType === 'reschedule_gaps') {
-      area.innerHTML = `
-        <div style="background:rgba(52,152,219,0.06);border-left:3px solid #3498db;padding:12px 16px;border-radius:6px;margin-bottom:12px">
+      contentHtml = `
+        <div style="background:rgba(52,152,219,0.08);border-left:3px solid #3498db;padding:10px 14px;border-radius:6px;margin-bottom:10px">
           <strong>🤖 Smart Activity Rescheduler</strong>
         </div>
-        <p>You have <strong>${ctx.pendingTasksCount} unfinished task(s)</strong>. AI can automatically re-balance them into tomorrow's free morning slots.</p>
-        <button class="btn-save" onclick="toast('Activities rescheduled for tomorrow 9:00 AM!','success')" type="button" style="padding:8px 16px;font-size:0.85rem"><i class="fa fa-calendar-check"></i> Reschedule Unfinished Tasks Now</button>
+        You have <strong>${ctx.pendingTasksCount} unfinished task(s)</strong>. AI can automatically re-balance them into tomorrow's free morning slots.
+        <br/><br/>
+        <button class="btn-save" onclick="toast('Activities rescheduled for tomorrow 9:00 AM!','success')" type="button" style="padding:6px 14px;font-size:0.82rem"><i class="fa fa-calendar-check"></i> Reschedule Unfinished Tasks Now</button>
       `;
     } else if (actionType === 'focus_advice') {
-      area.innerHTML = `
-        <div style="background:rgba(155,89,182,0.06);border-left:3px solid #9b59b6;padding:12px 16px;border-radius:6px;margin-bottom:12px">
+      contentHtml = `
+        <div style="background:rgba(155,89,182,0.08);border-left:3px solid #9b59b6;padding:10px 14px;border-radius:6px;margin-bottom:10px">
           <strong>🤖 Personal Focus & Health Advice</strong>
         </div>
-        <p>You've completed <strong>${ctx.focusMinsToday} minutes</strong> of focus today. To maximize mental clarity:</p>
-        <ul style="margin-left:20px;margin-bottom:14px">
+        You've completed <strong>${ctx.focusMinsToday} minutes</strong> of focus today. To maximize performance:
+        <ul style="margin-left:18px;margin-top:8px;margin-bottom:8px">
           <li>Try 45-minute focus intervals followed by 10 minutes of rest.</li>
-          <li>Listen to Alpha Wave Binaural Beats during complex problem-solving.</li>
+          <li>Listen to Alpha Wave Binaural Beats during deep work.</li>
           <li>Keep your daily streak active by logging at least 1 session every day!</li>
         </ul>
       `;
     }
+
+    const aiRow = document.createElement('div');
+    aiRow.style.cssText = 'display:flex;gap:10px;align-items:flex-start';
+    aiRow.innerHTML = `
+      <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#9b59b6,#3498db);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1rem;flex-shrink:0"><i class="fa fa-robot"></i></div>
+      <div style="background:rgba(255,255,255,0.06);padding:12px 16px;border-radius:12px;max-width:85%;font-size:0.92rem;line-height:1.6;color:var(--text1)">
+        ${contentHtml}
+      </div>
+    `;
+    log.appendChild(aiRow);
+    log.scrollTop = log.scrollHeight;
   }, 500);
 };
 
@@ -6128,22 +6216,62 @@ window.submitCustomAIPrompt = function() {
   const prompt = input.value.trim();
   input.value = '';
 
-  const area = document.getElementById('ai-response-area');
-  const ctx = getActivityContext();
-  area.innerHTML = `<div style="text-align:center;padding:20px"><i class="fa fa-spinner fa-spin" style="font-size:1.8rem;color:var(--accent)"></i><p style="margin-top:10px;color:var(--text2)">AI Co-Pilot is processing "${escHtml(prompt)}"...</p></div>`;
+  const log = document.getElementById('ai-chat-log');
+  if (!log) return;
+
+  // Render User Message
+  const userRow = document.createElement('div');
+  userRow.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;align-items:flex-start';
+  userRow.innerHTML = `
+    <div style="background:linear-gradient(135deg,rgba(240,192,64,0.2),rgba(212,149,15,0.3));border:1px solid rgba(240,192,64,0.4);padding:12px 16px;border-radius:12px;max-width:80%;font-size:0.92rem;line-height:1.6;color:var(--text1)">
+      ${escapeHtml(prompt)}
+    </div>
+    <div style="width:36px;height:36px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#000;font-weight:700;font-size:0.9rem;flex-shrink:0">You</div>
+  `;
+  log.appendChild(userRow);
+  log.scrollTop = log.scrollHeight;
+
+  // Add Typing Indicator
+  const loadingRow = document.createElement('div');
+  loadingRow.style.cssText = 'display:flex;gap:10px;align-items:flex-start';
+  loadingRow.innerHTML = `
+    <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#9b59b6,#3498db);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1rem;flex-shrink:0"><i class="fa fa-robot"></i></div>
+    <div style="background:rgba(255,255,255,0.06);padding:12px 16px;border-radius:12px;font-size:0.9rem;color:var(--text3)">
+      <i class="fa fa-spinner fa-spin"></i> AI Co-Pilot is thinking...
+    </div>
+  `;
+  log.appendChild(loadingRow);
+  log.scrollTop = log.scrollHeight;
 
   setTimeout(() => {
-    area.innerHTML = `
-      <div style="background:rgba(255,255,255,0.04);padding:10px 14px;border-radius:8px;margin-bottom:10px;color:var(--accent)">
-        <strong>You:</strong> ${escHtml(prompt)}
+    loadingRow.remove();
+    const ctx = getActivityContext();
+    const lower = prompt.toLowerCase();
+    let reply = '';
+    let actionBtnHtml = '';
+
+    if (lower.includes('timetable') || lower.includes('schedule') || lower.includes('routine') || lower.includes('work')) {
+      reply = `Based on your overall context (${ctx.pendingTasksCount} pending tasks and ${ctx.sessionsToday} focus sessions today), here is a structured strategy for <em>"${escapeHtml(prompt)}"</em>: divide your working blocks into 45-minute deep focus sprints separated by 10-minute breaks.`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIGeneratedTimetable()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-plus"></i> Generate & Apply Timetable</button>`;
+    } else if (lower.includes('plan') || lower.includes('task') || lower.includes('break') || lower.includes('goal')) {
+      reply = `To achieve <em>"${escapeHtml(prompt)}"</em> effectively, I recommend breaking it into 3 clear daily micro-milestones: 1) Research & Setup, 2) Core Execution Block, and 3) Final Review.`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-tasks"></i> Add Tasks to My Plan</button>`;
+    } else {
+      reply = `That's a great question! For <em>"${escapeHtml(prompt)}"</em>: the key to long-term success is consistency over intensity. You can track your progress using PlanTrack's Focus Timer and daily streaks. Would you like me to help you schedule dedicated focus blocks or break this down into actionable steps?`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-wand-magic-sparkles"></i> Create Action Plan</button>`;
+    }
+
+    const aiRow = document.createElement('div');
+    aiRow.style.cssText = 'display:flex;gap:10px;align-items:flex-start';
+    aiRow.innerHTML = `
+      <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#9b59b6,#3498db);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1rem;flex-shrink:0"><i class="fa fa-robot"></i></div>
+      <div style="background:rgba(255,255,255,0.06);padding:12px 16px;border-radius:12px;max-width:85%;font-size:0.92rem;line-height:1.6;color:var(--text1)">
+        ${reply}
+        <br/>${actionBtnHtml}
       </div>
-      <div style="line-height:1.6">
-        <strong>🤖 PlanTrack AI Co-Pilot:</strong><br/>
-        Based on your current plan activities (${ctx.activePlansCount} active) and focus sessions today (${ctx.sessionsToday} sessions):<br/><br/>
-        Here is a tailored recommendation for <em>"${escHtml(prompt)}"</em>: Break this objective down into 2-3 focused 25-minute sessions. I can schedule these directly into your PlanTrack Timetable!
-      </div>
-      <button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:12px;padding:8px 16px;font-size:0.85rem"><i class="fa fa-plus"></i> Create Plan from Prompt</button>
     `;
+    log.appendChild(aiRow);
+    log.scrollTop = log.scrollHeight;
   }, 700);
 };
 
