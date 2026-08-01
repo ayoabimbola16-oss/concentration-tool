@@ -15,45 +15,40 @@
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 
-  <!-- ★ First-visit redirect: send anonymous first-timers to landing page.
-       IMPORTANT: Must NOT redirect during a Supabase OAuth callback.
-       Supabase v2 PKCE returns ?code=... in query string (NOT #access_token in hash).
-       Custom storageKey 'plantrack-auth' means session is NOT under 'sb-' or 'supabase'. -->
+  <!-- ★ First-visit redirect: send brand-new anonymous visitors to landing page.
+       MUST NOT redirect during a Supabase OAuth callback (implicit flow → #access_token in hash). -->
   <script>
     (function() {
       try {
         var search = window.location.search || '';
         var hash   = window.location.hash   || '';
 
-        // ── 1. Never redirect during an OAuth callback ─────────────────────
-        // Supabase v2 PKCE: Google returns ?code=... in the query string
-        if (search.indexOf('code=') !== -1) return;
-        // Supabase v1 / implicit: tokens come back in the URL hash
+        // ── 1. Never interrupt an OAuth callback ───────────────────────────
+        // Implicit flow: tokens arrive in URL hash
         if (hash.indexOf('access_token') !== -1) return;
-        // Any other Supabase callback signals
+        // PKCE flow (fallback): auth code arrives in query string
+        if (search.indexOf('code=') !== -1) return;
+        // Error callback
         if (search.indexOf('error=') !== -1) return;
 
-        // ── 2. Skip if user has already seen the landing page ──────────────
+        // ── 2. User has already seen landing page ──────────────────────────
         if (localStorage.getItem('pt_visited_landing')) return;
 
-        // ── 3. Skip if there is an existing session in localStorage ────────
-        // Custom storageKey: 'plantrack-auth' (set in app.js createClient)
-        var sessionRaw = localStorage.getItem('plantrack-auth');
-        if (sessionRaw && sessionRaw.indexOf('access_token') !== -1) return;
-        // Also check the default Supabase key pattern as a fallback
+        // ── 3. Active session exists in localStorage ───────────────────────
+        // Default Supabase v2 key: sb-<projectRef>-auth-token
         for (var i = 0; i < localStorage.length; i++) {
           var k = localStorage.key(i) || '';
-          if (k.indexOf('supabase') !== -1 || k.indexOf('sb-') !== -1) {
+          if (k.indexOf('sb-') !== -1 || k.indexOf('supabase') !== -1) {
             var v = '';
             try { v = localStorage.getItem(k) || ''; } catch(e) {}
             if (v.indexOf('access_token') !== -1) return;
           }
         }
 
-        // ── 4. Skip if user came directly from landing.html ────────────────
+        // ── 4. Came from landing.html directly ────────────────────────────
         if ((document.referrer || '').indexOf('landing') !== -1) return;
 
-        // ── 5. Brand-new anonymous visitor → show landing page first ───────
+        // ── 5. Brand-new visitor → show landing page first ────────────────
         window.location.replace('landing.html');
       } catch(e) {}
     })();
