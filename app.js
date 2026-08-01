@@ -5054,10 +5054,52 @@ function buildSharedCard(msg) {
   const type = msg.type || msg.attachment_type || '';
   const url = msg.attachment_url || att.audio_url || att.url || '';
 
-  // Audio Voice Note Message
-  if (type === 'audio' || (url && (url.startsWith('data:audio') || url.endsWith('.webm') || url.endsWith('.mp3')))) {
+  // ── Audio / Voice Note ──────────────────────────────────────────
+  if (type === 'audio' || (url && (url.startsWith('data:audio') || url.endsWith('.webm') || url.endsWith('.mp3') || url.endsWith('.ogg')))) {
     return `<div class="audio-msg-bubble" style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:rgba(255,255,255,0.06);border-radius:12px;margin-top:4px;">
-      <audio controls src="${url}" style="max-width:230px;height:38px;"></audio>
+      <audio controls preload="auto" style="max-width:240px;height:38px;outline:none;">
+        <source src="${url}" type="audio/webm">
+        <source src="${url}" type="audio/ogg">
+        <source src="${url}" type="audio/mpeg">
+        Your browser does not support audio playback.
+      </audio>
+    </div>`;
+  }
+
+  // ── Call Signal (do not render as card) ─────────────────────────
+  if (type === 'call_signal' || type === 'accept_signal' || type === 'decline_signal') {
+    const isSent = msg.sender_id === currentUserId;
+    const callType = att.callType || 'voice';
+    const iconC = callType === 'video' ? 'fa-video' : 'fa-phone';
+    if (type === 'call_signal') {
+      return `<div class="msg-bubble" style="background:rgba(255,255,255,0.05);font-size:0.85rem;color:var(--text3);display:flex;align-items:center;gap:8px;"><i class="fa ${iconC}" style="color:var(--accent)"></i>${isSent ? 'Outgoing' : 'Incoming'} ${callType} call</div>`;
+    }
+    if (type === 'decline_signal') {
+      return `<div class="msg-bubble" style="background:rgba(231,76,60,0.08);font-size:0.85rem;color:#e74c3c;display:flex;align-items:center;gap:8px;"><i class="fa fa-phone-slash"></i> Call declined</div>`;
+    }
+    if (type === 'accept_signal') {
+      return `<div class="msg-bubble" style="background:rgba(46,204,113,0.08);font-size:0.85rem;color:#2ecc71;display:flex;align-items:center;gap:8px;"><i class="fa fa-phone"></i> Call accepted</div>`;
+    }
+  }
+
+  // ── Idea / Business Proposal ────────────────────────────────────
+  if (type === 'idea') {
+    const isSent = msg.sender_id === currentUserId;
+    const idea = att.idea || msg.content || 'Business Proposal';
+    const imgUrl = att.image_url || '';
+    return `<div class="shared-card" style="border-color:rgba(155,89,182,0.4);background:linear-gradient(135deg,rgba(155,89,182,0.08),rgba(52,152,219,0.05));">
+      <div class="shared-card-header">
+        <div class="shared-card-icon" style="background:rgba(155,89,182,0.2);color:#9b59b6;"><i class="fa fa-lightbulb"></i></div>
+        <div>
+          <div class="shared-card-title">💡 ${isSent ? 'Your' : ''} Business Idea / Proposal</div>
+          <div class="shared-card-meta" style="white-space:pre-wrap;max-height:80px;overflow:hidden;">${escapeHtml(idea).substring(0, 150)}${idea.length > 150 ? '...' : ''}</div>
+        </div>
+      </div>
+      ${imgUrl ? `<img src="${imgUrl}" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin:10px 0;" />` : ''}
+      <div class="shared-card-footer">
+        <span class="shared-card-type-tag" style="background:rgba(155,89,182,0.15);color:#9b59b6;">💡 Idea</span>
+        <button class="shared-card-action" onclick="viewSharedIdea('${cacheKey}')" type="button">Read Full Idea →</button>
+      </div>
     </div>`;
   }
 
@@ -5082,6 +5124,9 @@ function buildSharedCard(msg) {
     meta = planDuration ? `${planDuration} plan` : 'Activities Plan';
     typeLabel = 'Plan'; actionLabel = 'View & Save';
     onClickFn = `viewSharedPlanById('${cacheKey}')`;
+  } else {
+    // Unknown card fallback
+    return `<div class="msg-bubble">${escapeHtml(msg.content || 'Shared item')}</div>`;
   }
 
   return `<div class="shared-card">
@@ -5107,6 +5152,20 @@ window.viewSharedPlanById = function(cacheKey) {
 window.viewSharedTimetableById = function(cacheKey) {
   const att = window.sharedAttachmentsCache[cacheKey] || {};
   viewSharedTimetable(att);
+};
+
+window.viewSharedIdea = function(cacheKey) {
+  const att = window.sharedAttachmentsCache[cacheKey] || {};
+  const idea = att.idea || 'No content';
+  const imgUrl = att.image_url || '';
+  // Reuse plan-view modal for displaying idea
+  document.getElementById('planv-heading').innerHTML = `<i class="fa fa-lightbulb" style="color:#9b59b6"></i> Business Idea / Proposal`;
+  document.getElementById('planv-body').innerHTML = `
+    <div style="background:rgba(155,89,182,0.07);border-left:3px solid #9b59b6;padding:16px 18px;border-radius:8px;font-size:0.95rem;line-height:1.8;color:var(--text1);white-space:pre-wrap;margin-bottom:20px;">${escapeHtml(idea)}</div>
+    ${imgUrl ? `<img src="${imgUrl}" style="width:100%;max-height:280px;object-fit:contain;border-radius:10px;margin-bottom:16px;">` : ''}
+    <p style="font-size:0.82rem;color:var(--text3);margin-top:10px;">Shared via PlanTrack Nexus Chat</p>
+  `;
+  openModal('modal-plan-view');
 };
 
 function escapeHtml(str) {
@@ -5325,6 +5384,12 @@ function subscribeToChatMessages() {
 function handleIncomingMessage(msg) {
   const fromFriend = msg.sender_id;
 
+  // ── Intercept call signals before rendering ──────────────────────
+  if (msg.type === 'call_signal' || msg.type === 'accept_signal' || msg.type === 'decline_signal') {
+    handleCallSignalMessage(msg);
+    return; // Don't add to chat or show badge for call signals
+  }
+
   // If this chat is currently open, render with proper grouping
   if (activeChatFriendId === fromFriend) {
     // Update local cache
@@ -5370,14 +5435,14 @@ function handleIncomingMessage(msg) {
 
     // Play subtle sound notification
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.type = 'sine'; osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-      osc.start(); osc.stop(ctx.currentTime + 0.3);
+      const ctx2 = new (window.AudioContext || window.webkitAudioContext)();
+      const osc2 = ctx2.createOscillator();
+      const gain2 = ctx2.createGain();
+      osc2.connect(gain2); gain2.connect(ctx2.destination);
+      osc2.type = 'sine'; osc2.frequency.value = 880;
+      gain2.gain.setValueAtTime(0.2, ctx2.currentTime);
+      gain2.gain.exponentialRampToValueAtTime(0.001, ctx2.currentTime + 0.3);
+      osc2.start(); osc2.stop(ctx2.currentTime + 0.3);
     } catch(e) {}
 
     // Update total badge
@@ -5406,6 +5471,12 @@ function handleIncomingMessage(msg) {
 
 async function openSharePicker(type) {
   if (!activeChatFriendId) return;
+
+  // Special case: idea sharing — open compose popup
+  if (type === 'idea') {
+    openIdeaComposeModal();
+    return;
+  }
 
   if (activeSharePickerType === type) {
     closeShareBar();
@@ -5438,11 +5509,11 @@ async function openSharePicker(type) {
       });
 
     } else if (type === 'file') {
-      if (title) title.textContent = '📁 Share a File:';
+      if (title) title.textContent = '📁 Share a File / Image:';
       const { data: files } = await db.from('files').select('*').eq('user_id', currentUserId);
       data = files || [];
       items.innerHTML = data.length === 0
-        ? '<div style="color:var(--text3);font-size:.85rem;padding:8px;">No files uploaded yet.</div>'
+        ? '<div style="color:var(--text3);font-size:.85rem;padding:8px;">No files uploaded yet. Use File Manager to upload first.</div>'
         : '';
       data.forEach(file => {
         const sizeStr = file.size ? formatBytes(file.size) : '';
@@ -5471,6 +5542,50 @@ async function openSharePicker(type) {
     items.innerHTML = '<div style="color:var(--red);font-size:.85rem;padding:8px;">Error loading items.</div>';
   }
 }
+
+// ── Idea / Business Proposal Compose ─────────────────────────────
+
+function openIdeaComposeModal() {
+  closeShareBar();
+  openModal('modal-idea-compose');
+}
+
+window.sendIdeaProposal = async function() {
+  const text = (document.getElementById('idea-compose-text')?.value || '').trim();
+  const imgFile = document.getElementById('idea-image-input')?.files?.[0];
+  if (!text && !imgFile) { toast('Please type your idea or attach an image', 'error'); return; }
+  if (!activeChatFriendId) { toast('Select a chat first', 'error'); return; }
+
+  const btn = document.getElementById('idea-send-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Sending...'; }
+
+  let image_url = '';
+  if (imgFile) {
+    try {
+      const ext = imgFile.name.split('.').pop();
+      const path = `ideas/${currentUserId}/${Date.now()}.${ext}`;
+      const { data: upData, error: upErr } = await db.storage.from('uploads').upload(path, imgFile, { upsert: true });
+      if (!upErr && upData) {
+        const { data: urlData } = db.storage.from('uploads').getPublicUrl(path);
+        image_url = urlData?.publicUrl || '';
+      }
+    } catch(e) { console.warn('Idea image upload failed:', e); }
+  }
+
+  const attachment = { idea: text, image_url };
+  await sendRawMessage('idea', text.substring(0, 80) || '💡 Idea Proposal', attachment);
+
+  // Reset form
+  const textarea = document.getElementById('idea-compose-text');
+  const imgInput = document.getElementById('idea-image-input');
+  if (textarea) textarea.value = '';
+  if (imgInput) imgInput.value = '';
+  const previewEl = document.getElementById('idea-image-preview');
+  if (previewEl) previewEl.innerHTML = '';
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-paper-plane"></i> Send Proposal'; }
+  closeModal('modal-idea-compose');
+  toast('💡 Idea / Proposal sent!', 'success');
+};
 
 function createShareBarItem(icon, type, name, meta, onClick) {
   const el = document.createElement('div');
@@ -5664,33 +5779,134 @@ let isCallMuted = false;
 let isCallVideoOff = false;
 let activeCallMediaStream = null;
 let activeIncomingCallData = null;
+let callRingtoneCtx = null;
+let callRingtoneInterval = null;
 
-window.handleIncomingCallSignal = function(payload) {
-  if (!payload || payload.targetUserId !== currentUserId) return;
+function playRingtone() {
+  stopRingtone();
+  try {
+    callRingtoneCtx = new (window.AudioContext || window.webkitAudioContext)();
+    callRingtoneInterval = setInterval(() => {
+      if (!callRingtoneCtx) return;
+      const osc = callRingtoneCtx.createOscillator();
+      const gain = callRingtoneCtx.createGain();
+      osc.connect(gain); gain.connect(callRingtoneCtx.destination);
+      osc.type = 'sine'; osc.frequency.value = 780;
+      gain.gain.setValueAtTime(0.3, callRingtoneCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, callRingtoneCtx.currentTime + 0.4);
+      osc.start(); osc.stop(callRingtoneCtx.currentTime + 0.4);
+    }, 900);
+  } catch(e) {}
+}
 
-  activeIncomingCallData = payload;
-  const nameEl = document.getElementById('inc-call-user-name');
-  const avatarEl = document.getElementById('inc-call-avatar');
-  const typeEl = document.getElementById('inc-call-type-text');
+function stopRingtone() {
+  if (callRingtoneInterval) { clearInterval(callRingtoneInterval); callRingtoneInterval = null; }
+  if (callRingtoneCtx) { try { callRingtoneCtx.close(); } catch(e) {} callRingtoneCtx = null; }
+}
 
-  if (nameEl) nameEl.textContent = payload.callerName || 'Friend';
-  if (avatarEl) avatarEl.textContent = (payload.callerName || 'U').charAt(0).toUpperCase();
-  if (typeEl) typeEl.innerHTML = `<i class="fa fa-phone-volume fa-spin"></i> Incoming ${payload.callType === 'video' ? 'Video' : 'Voice'} Call...`;
+// Handle incoming call_signal messages from the database real-time stream
+function handleCallSignalMessage(msg) {
+  if (!msg || msg.receiver_id !== currentUserId) return;
 
-  openModal('modal-incoming-call');
-};
+  const type = msg.type;
+  let att = msg.attachment || {};
+  if (typeof att === 'string') { try { att = JSON.parse(att); } catch(e) { att = {}; } }
 
-window.acceptIncomingCall = function() {
+  if (type === 'call_signal') {
+    // Incoming ringing
+    activeIncomingCallData = { callType: att.callType || 'voice', callerName: att.callerName || 'Friend', callerUserId: msg.sender_id, msgId: msg.id };
+    const nameEl = document.getElementById('inc-call-user-name');
+    const avatarEl = document.getElementById('inc-call-avatar');
+    const typeEl = document.getElementById('inc-call-type-text');
+    if (nameEl) nameEl.textContent = att.callerName || 'Friend';
+    if (avatarEl) { avatarEl.textContent = (att.callerName || 'U').charAt(0).toUpperCase(); }
+    if (typeEl) typeEl.innerHTML = `<i class="fa fa-phone-volume fa-spin"></i> Incoming ${att.callType === 'video' ? 'Video' : 'Voice'} Call...`;
+    playRingtone();
+    openModal('modal-incoming-call');
+  } else if (type === 'accept_signal') {
+    // Other user accepted our call — start connected timer
+    stopRingtone();
+    const statusEl = document.getElementById('call-status-text');
+    if (statusEl) {
+      statusEl.style.color = '#2ecc71';
+      activeCallSeconds = 0;
+      if (activeCallTimer) clearInterval(activeCallTimer);
+      activeCallTimer = setInterval(() => {
+        activeCallSeconds++;
+        const mins = String(Math.floor(activeCallSeconds / 60)).padStart(2, '0');
+        const secs = String(activeCallSeconds % 60).padStart(2, '0');
+        statusEl.innerHTML = `<i class="fa fa-circle" style="color:#2ecc71;font-size:0.6rem"></i> Connected • ${mins}:${secs}`;
+      }, 1000);
+    }
+    toast('Call connected! 🎉', 'success');
+  } else if (type === 'decline_signal') {
+    // Other user declined
+    stopRingtone();
+    endCall();
+    toast('Call was declined', 'info');
+  }
+}
+
+window.acceptIncomingCall = async function() {
   if (!activeIncomingCallData) return;
+  stopRingtone();
   const callType = activeIncomingCallData.callType || 'voice';
+  const callerUserId = activeIncomingCallData.callerUserId;
   closeModal('modal-incoming-call');
-  startCall(callType);
+
+  // Signal the caller that we accepted
+  if (callerUserId) {
+    const prevFriend = activeChatFriendId;
+    activeChatFriendId = callerUserId; // temporarily set for sendRawMessage
+    await sendRawMessage('accept_signal', 'Call accepted', { callType });
+    activeChatFriendId = prevFriend;
+  }
+
+  activeIncomingCallData = null;
+  // Open the call screen for the receiver
+  const callerName = document.getElementById('inc-call-user-name')?.textContent || 'Friend';
+  const userEl = document.getElementById('call-user-name');
+  const avatarEl = document.getElementById('call-avatar');
+  const statusEl = document.getElementById('call-status-text');
+  if (userEl) userEl.textContent = callerName;
+  if (avatarEl) avatarEl.textContent = (callerName).charAt(0).toUpperCase();
+  if (statusEl) { statusEl.style.color = '#2ecc71'; statusEl.innerHTML = '<i class="fa fa-circle" style="color:#2ecc71;font-size:0.6rem"></i> Connected'; }
+  openModal('modal-active-call');
+
+  if (callType === 'video') {
+    try {
+      const videoEl = document.getElementById('local-video-stream');
+      const avatarWrap = document.getElementById('call-avatar-wrap');
+      activeCallMediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      if (videoEl) { videoEl.srcObject = activeCallMediaStream; videoEl.style.display = 'block'; }
+      if (avatarWrap) avatarWrap.style.display = 'none';
+    } catch(e) { toast('Camera unavailable', 'info'); }
+  }
+
+  // Start timer
+  activeCallSeconds = 0;
+  if (activeCallTimer) clearInterval(activeCallTimer);
+  activeCallTimer = setInterval(() => {
+    activeCallSeconds++;
+    const mins = String(Math.floor(activeCallSeconds / 60)).padStart(2, '0');
+    const secs = String(activeCallSeconds % 60).padStart(2, '0');
+    const st = document.getElementById('call-status-text');
+    if (st) st.innerHTML = `<i class="fa fa-circle" style="color:#2ecc71;font-size:0.6rem"></i> Connected • ${mins}:${secs}`;
+  }, 1000);
 };
 
-window.declineIncomingCall = function() {
+window.declineIncomingCall = async function() {
+  stopRingtone();
+  const callerUserId = activeIncomingCallData?.callerUserId;
   closeModal('modal-incoming-call');
-  toast('Call declined', 'info');
+  if (callerUserId) {
+    const prevFriend = activeChatFriendId;
+    activeChatFriendId = callerUserId;
+    await sendRawMessage('decline_signal', 'Call declined', {});
+    activeChatFriendId = prevFriend;
+  }
   activeIncomingCallData = null;
+  toast('Call declined', 'info');
 };
 
 window.startCall = async function(type) {
@@ -5713,15 +5929,15 @@ window.startCall = async function(type) {
 
   openModal('modal-active-call');
 
-  // Request camera & mic access for Video calls
+  // Camera & mic access for video calls (mirrored naturally via CSS scaleX(-1))
   if (type === 'video' && videoEl) {
     try {
-      activeCallMediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      activeCallMediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true });
       videoEl.srcObject = activeCallMediaStream;
       videoEl.style.display = 'block';
       if (avatarWrap) avatarWrap.style.display = 'none';
     } catch (e) {
-      console.warn('Camera access denied or unequipped:', e);
+      console.warn('Camera access denied:', e);
       toast('Camera unavailable or permission denied.', 'info');
       if (videoEl) videoEl.style.display = 'none';
       if (avatarWrap) avatarWrap.style.display = 'block';
@@ -5732,38 +5948,40 @@ window.startCall = async function(type) {
   }
 
   if (!isUserOnline) {
-    // Target user is offline — ring briefly then notify offline status
+    // Target is offline — send missed call and close
     setTimeout(() => {
-      if (statusEl) {
-        statusEl.style.color = '#e74c3c';
-        statusEl.innerHTML = `<i class="fa fa-phone-slash"></i> ${escapeHtml(name)} is currently offline`;
-      }
+      if (statusEl) { statusEl.style.color = '#e74c3c'; statusEl.innerHTML = `<i class="fa fa-phone-slash"></i> ${escapeHtml(name)} is offline`; }
       setTimeout(async () => {
         endCall();
-        toast(`${name} is offline. Missed call message sent.`, 'info');
-        await sendRawMessage('text', `📞 Missed ${type} call`, null);
+        toast(`${name} is offline. Missed call notification sent.`, 'info');
+        await sendRawMessage('text', `📵 Missed ${type === 'video' ? 'video' : 'voice'} call from ${currentUserProfile?.username || 'you'}`, null);
       }, 2500);
-    }, 3500);
+    }, 3000);
     return;
   }
 
-  // Target user is online — connect call
+  // ── Send call_signal to receiver via Supabase ──────────────────
+  await sendRawMessage('call_signal', `📞 Incoming ${type} call`, {
+    callType: type,
+    callerName: currentUserProfile?.username || 'Friend',
+    callerUserId: currentUserId
+  });
+
+  // Show ringing status — wait for accept_signal or decline_signal in real-time
+  if (statusEl) statusEl.innerHTML = `<i class="fa fa-phone-volume fa-spin"></i> Ringing ${escapeHtml(name)}...`;
+
+  // Auto-cancel if no answer in 30 seconds
   setTimeout(() => {
-    if (statusEl) {
-      statusEl.style.color = '#2ecc71';
-      activeCallSeconds = 0;
-      if (activeCallTimer) clearInterval(activeCallTimer);
-      activeCallTimer = setInterval(() => {
-        activeCallSeconds++;
-        const mins = String(Math.floor(activeCallSeconds / 60)).padStart(2, '0');
-        const secs = String(activeCallSeconds % 60).padStart(2, '0');
-        statusEl.innerHTML = `<i class="fa fa-circle" style="color:#2ecc71;font-size:0.6rem"></i> Connected • ${mins}:${secs}`;
-      }, 1000);
+    const st = document.getElementById('call-status-text');
+    if (st && (st.innerHTML.includes('Ringing') || st.innerHTML.includes('Calling'))) {
+      endCall();
+      toast(`${name} did not answer`, 'info');
     }
-  }, 2000);
+  }, 30000);
 };
 
 window.endCall = function() {
+  stopRingtone();
   if (activeCallTimer) clearInterval(activeCallTimer);
   if (activeCallMediaStream) {
     activeCallMediaStream.getTracks().forEach(track => track.stop());
@@ -6119,20 +6337,40 @@ window.getActivityContext = function() {
   const plans = window.allPlans || [];
   const focusMins = Math.round((window.focusTotalSecs || 0) / 60);
   const sessions = window.focusSessionsToday || 0;
-  
-  let activePlans = plans.filter(p => !p.completed);
+  const activePlans = plans.filter(p => !p.completed);
   let pendingTasks = 0;
-  plans.forEach(p => {
-    if (p.activities) pendingTasks += p.activities.filter(a => a.status !== 'done').length;
-  });
+  plans.forEach(p => { if (p.activities) pendingTasks += p.activities.filter(a => a.status !== 'done').length; });
+  let totalCompleted = 0;
+  plans.forEach(p => { if (p.activities) totalCompleted += p.activities.filter(a => a.status === 'done').length; });
 
   return {
     sessionsToday: sessions,
     focusMinsToday: focusMins,
     totalPlansCount: plans.length,
     activePlansCount: activePlans.length,
-    pendingTasksCount: pendingTasks
+    pendingTasksCount: pendingTasks,
+    totalCompletedTasks: totalCompleted,
+    friendsCount: window._userFriendsCount || 0,
+    timetablesCount: window._userTimetablesCount || 0,
+    filesCount: window._userFilesCount || 0,
+    joinDate: currentUserProfile?.created_at ? new Date(currentUserProfile.created_at).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' }) : 'Unknown'
   };
+};
+
+// Fetch extra user stats in background and cache them
+window.prefetchUserStats = async function() {
+  if (!currentUserId) return;
+  try {
+    const [{ count: fc }, { count: tc }, { count: filc }] = await Promise.all([
+      db.from('friendships').select('id', { count: 'exact', head: true })
+        .or(`user_id.eq.${currentUserId},friend_id.eq.${currentUserId}`).eq('status', 'accepted'),
+      db.from('timetables').select('id', { count: 'exact', head: true }).eq('user_id', currentUserId),
+      db.from('files').select('id', { count: 'exact', head: true }).eq('user_id', currentUserId)
+    ]);
+    window._userFriendsCount = fc || 0;
+    window._userTimetablesCount = tc || 0;
+    window._userFilesCount = filc || 0;
+  } catch(e) { console.warn('[AI] prefetchUserStats error:', e); }
 };
 
 window.openAICoPilot = function() {
@@ -6143,10 +6381,14 @@ window.openAICoPilot = function() {
     return;
   }
 
+  // Pre-fetch user stats so AI has full context
+  window.prefetchUserStats && window.prefetchUserStats();
+
   const ctx = getActivityContext();
+  const username = currentUserProfile?.username || 'User';
   const contextEl = document.getElementById('ai-context-text');
   if (contextEl) {
-    contextEl.innerHTML = `You have completed <strong>${ctx.sessionsToday} focus session(s)</strong> (${ctx.focusMinsToday} mins) today. You currently have <strong>${ctx.activePlansCount} active plan(s)</strong> with <strong>${ctx.pendingTasksCount} pending task(s)</strong>.`;
+    contextEl.innerHTML = `Hello <strong>${username}</strong>! You have <strong>${ctx.sessionsToday} focus session(s)</strong> (${ctx.focusMinsToday} mins) today, <strong>${ctx.activePlansCount} active plan(s)</strong>, <strong>${ctx.pendingTasksCount} pending task(s)</strong>, and <strong>${ctx.friendsCount} friend(s)</strong> on PlanTrack.`;
   }
   openModal('modal-ai-copilot');
 };
@@ -6294,13 +6536,19 @@ window.submitCustomAIPrompt = function() {
       actionBtnHtml = `<button class="btn-save" onclick="askAICoPilot('breakdown_tasks')" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-plus"></i> Breakdown Today's Tasks</button>`;
     }
     // 2. USER STATS & TOTAL ACTIVITY SUMMARY
-    else if (lower.includes('what have i done') || lower.includes('my stats') || lower.includes('my progress') || lower.includes('my activity') || lower.includes('summary')) {
-      reply = `📊 <strong>PlanTrack Activity Summary for ${username}:</strong><br/><br/>
-      ⏱️ <strong>Focus Today:</strong> ${ctx.sessionsToday} Session(s) (${ctx.focusMinsToday} Mins)<br/>
-      📋 <strong>Active Plans:</strong> ${ctx.activePlansCount} Active Plan(s)<br/>
-      ✅ <strong>Pending Tasks:</strong> ${ctx.pendingTasksCount} Task(s) Remaining<br/><br/>
-      <em>Keep up the great momentum!</em>`;
-      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-plus"></i> Add Tasks to Plan</button>`;
+    else if (lower.includes('what have i done') || lower.includes('my stats') || lower.includes('my progress') || lower.includes('my activity') || lower.includes('summary') || lower.includes('how am i doing')) {
+      reply = `📊 <strong>Complete PlanTrack Profile for ${username}:</strong><br/><br/>
+      👤 <strong>Username:</strong> ${username}<br/>
+      📅 <strong>Member Since:</strong> ${ctx.joinDate}<br/>
+      👥 <strong>Friends:</strong> ${ctx.friendsCount} Friend(s) on PlanTrack<br/>
+      ⏱️ <strong>Focus Today:</strong> ${ctx.sessionsToday} Session(s) — ${ctx.focusMinsToday} Mins<br/>
+      📋 <strong>Active Plans:</strong> ${ctx.activePlansCount} / ${ctx.totalPlansCount} Total Plans<br/>
+      ✅ <strong>Completed Tasks (All Time):</strong> ${ctx.totalCompletedTasks}<br/>
+      🔄 <strong>Pending Tasks:</strong> ${ctx.pendingTasksCount} Remaining<br/>
+      📅 <strong>Timetables Created:</strong> ${ctx.timetablesCount}<br/>
+      📁 <strong>Files Uploaded:</strong> ${ctx.filesCount}<br/><br/>
+      <em>Keep up the great work, ${username}! You're making excellent progress.</em>`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-plus"></i> Add More Tasks to My Plan</button>`;
     }
     // 3. FINANCIAL / BUSINESS / MONEY INTENT
     else if (lower.includes('money') || lower.includes('earn') || lower.includes('business') || lower.includes('revenue') || lower.includes('income') || lower.includes('hustle')) {

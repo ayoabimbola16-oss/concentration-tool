@@ -639,6 +639,9 @@
                   <button class="chat-attach-btn" onclick="openSharePicker('file')" title="Attach File" type="button">
                     <i class="fa fa-paperclip"></i>
                   </button>
+                  <button class="chat-attach-btn" onclick="openSharePicker('idea')" title="Share Idea / Proposal" type="button" style="color:#9b59b6;">
+                    <i class="fa fa-lightbulb"></i>
+                  </button>
                 </div>
                 <div class="chat-input-wrap">
                   <input type="text" id="chat-input"
@@ -1253,6 +1256,37 @@
       <button class="call-control-btn" id="call-mute-btn" onclick="toggleCallMute()" type="button" title="Mute Microphone" style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:1.2rem;cursor:pointer"><i class="fa fa-microphone"></i></button>
       <button class="call-control-btn hangup" onclick="endCall()" type="button" title="End Call" style="width:60px;height:60px;border-radius:50%;background:#e74c3c;border:none;color:#fff;font-size:1.4rem;cursor:pointer;box-shadow:0 6px 20px rgba(231,76,60,0.5)"><i class="fa fa-phone-slash"></i></button>
       <button class="call-control-btn" id="call-video-btn" onclick="toggleCallVideo()" type="button" title="Toggle Camera" style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:1.2rem;cursor:pointer"><i class="fa fa-video"></i></button>
+    </div>
+  </div>
+</div>
+
+<!-- IDEA / BUSINESS PROPOSAL COMPOSE MODAL -->
+<div id="modal-idea-compose" class="overlay" style="display:none">
+  <div class="modal" style="max-width:520px">
+    <div class="mh" style="background:linear-gradient(135deg,rgba(155,89,182,0.25),rgba(52,152,219,0.2))">
+      <h2><i class="fa fa-lightbulb" style="color:#9b59b6"></i> Share Idea / Business Proposal</h2>
+      <button class="mclose" onclick="closeModal('modal-idea-compose')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb" style="padding:20px">
+      <p style="font-size:0.88rem;color:var(--text3);margin-bottom:14px">Share your business idea, plan, or proposal with this contact. You can also attach an image or document.</p>
+      <textarea id="idea-compose-text" rows="6"
+        placeholder="Type your business idea, proposal, or message here...&#10;&#10;E.g: I'd like to propose we expand our marketing budget by 20% in Q3 to target the student demographic..."
+        style="width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:10px;padding:14px;color:var(--text1);font-size:0.93rem;resize:vertical;line-height:1.7;font-family:inherit;box-sizing:border-box;"></textarea>
+
+      <div style="margin-top:14px">
+        <label style="font-size:0.85rem;color:var(--text2);display:block;margin-bottom:8px"><i class="fa fa-image" style="color:#9b59b6"></i> Attach Image (optional)</label>
+        <input type="file" id="idea-image-input" accept="image/*"
+          onchange="const f=this.files[0]; if(f){const r=new FileReader();r.onload=e=>{document.getElementById('idea-image-preview').innerHTML='<img src=\''+e.target.result+'\' style=\'max-width:100%;max-height:160px;border-radius:8px;margin-top:10px;\'>';};r.readAsDataURL(f);}"
+          style="display:block;font-size:0.85rem;color:var(--text2);background:rgba(155,89,182,0.08);border:1px dashed rgba(155,89,182,0.4);border-radius:8px;padding:10px;cursor:pointer;width:100%;box-sizing:border-box;"/>
+        <div id="idea-image-preview" style="margin-top:8px"></div>
+      </div>
+
+      <div style="display:flex;gap:12px;margin-top:20px">
+        <button type="button" onclick="closeModal('modal-idea-compose')" class="btn-cancel" style="flex:1">Cancel</button>
+        <button type="button" id="idea-send-btn" onclick="sendIdeaProposal()" class="btn-save" style="flex:2;justify-content:center">
+          <i class="fa fa-paper-plane"></i> Send Proposal
+        </button>
+      </div>
     </div>
   </div>
 </div>
