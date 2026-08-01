@@ -48,12 +48,15 @@ body {
 /* ════════════ AUTH ════════════ */
 #auth-screen {
   min-height:100vh;
-  display:flex;
+  display:none;         /* JS sets to flex when needed */
   align-items:center;
   justify-content:center;
-  position:relative;
+  position:fixed;       /* Full screen, above everything */
+  inset:0;
   overflow:hidden;
   padding:20px;
+  background:var(--bg);
+  z-index:5000;
 }
 
 .auth-bg { position:fixed; inset:0; pointer-events:none; z-index:0; }

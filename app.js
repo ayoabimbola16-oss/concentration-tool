@@ -843,6 +843,9 @@ async function initApp(user) {
 
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
+  // Mark landing as visited so logged-in users skip landing page redirect
+  try { localStorage.setItem('pt_visited_landing', '1'); } catch(e) {}
+
 
   await loadUserSounds();
 

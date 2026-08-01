@@ -848,6 +848,9 @@
   </footer>
 
   <script>
+    // Mark that the user has visited the landing page
+    try { localStorage.setItem('pt_visited_landing', '1'); } catch(e) {}
+
     // FAQ Accordion Toggle
     document.querySelectorAll('.faq-question').forEach(q => {
       q.addEventListener('click', () => {
