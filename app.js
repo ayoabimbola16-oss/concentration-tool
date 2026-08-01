@@ -6250,15 +6250,53 @@ window.submitCustomAIPrompt = function() {
     let reply = '';
     let actionBtnHtml = '';
 
-    if (lower.includes('timetable') || lower.includes('schedule') || lower.includes('routine') || lower.includes('work')) {
-      reply = `Based on your overall context (${ctx.pendingTasksCount} pending tasks and ${ctx.sessionsToday} focus sessions today), here is a structured strategy for <em>"${escapeHtml(prompt)}"</em>: divide your working blocks into 45-minute deep focus sprints separated by 10-minute breaks.`;
+    // 1. FINANCIAL / BUSINESS / MONEY INTENT
+    if (lower.includes('money') || lower.includes('earn') || lower.includes('business') || lower.includes('revenue') || lower.includes('income') || lower.includes('hustle')) {
+      reply = `Building sustainable income requires focusing on high-value skills and execution. Here are 3 proven paths:<br/><br/>
+      1️⃣ <strong>High-Ticket Freelancing:</strong> Master a specific skill (web development, AI workflows, copywriting, UI design) and offer service retainers to business owners.<br/>
+      2️⃣ <strong>Digital Products & Tools:</strong> Build digital assets (notion templates, niche web tools, course guides) that earn recurring revenue.<br/>
+      3️⃣ <strong>Agency / B2B Consulting:</strong> Help local or online businesses automate operations and solve bottlenecks.<br/><br/>
+      <em>The secret is dedicated daily focus. Would you like me to build a 30-day execution plan for your business goals?</em>`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-rocket"></i> Create 30-Day Monetization Plan</button>`;
+    }
+    // 2. DAY PLANNING / SCHEDULING INTENT
+    else if (lower.includes('plan my day') || lower.includes('schedule today') || lower.includes('plan today') || lower.includes('structure today')) {
+      reply = `I'd love to help structure your day! Tell me: <strong>What are your top 2-3 priorities for today, and what hours are you working?</strong><br/><br/>
+      In the meantime, here is an optimized daily structure you can apply immediately:`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIGeneratedTimetable()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-calendar-check"></i> Apply Standard 8-Hour Work & Study Day</button>`;
+    }
+    // 3. TIMETABLE & ROUTINES
+    else if (lower.includes('timetable') || lower.includes('schedule') || lower.includes('routine') || lower.includes('work')) {
+      reply = `Based on your current activity (${ctx.pendingTasksCount} pending tasks and ${ctx.sessionsToday} focus sessions completed), here is an optimal routine for <em>"${escapeHtml(prompt)}"</em>: divide your day into 45-minute deep focus sprints separated by 10-minute breaks.`;
       actionBtnHtml = `<button class="btn-save" onclick="applyAIGeneratedTimetable()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-plus"></i> Generate & Apply Timetable</button>`;
-    } else if (lower.includes('plan') || lower.includes('task') || lower.includes('break') || lower.includes('goal')) {
-      reply = `To achieve <em>"${escapeHtml(prompt)}"</em> effectively, I recommend breaking it into 3 clear daily micro-milestones: 1) Research & Setup, 2) Core Execution Block, and 3) Final Review.`;
-      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-tasks"></i> Add Tasks to My Plan</button>`;
-    } else {
-      reply = `That's a great question! For <em>"${escapeHtml(prompt)}"</em>: the key to long-term success is consistency over intensity. You can track your progress using PlanTrack's Focus Timer and daily streaks. Would you like me to help you schedule dedicated focus blocks or break this down into actionable steps?`;
-      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-wand-magic-sparkles"></i> Create Action Plan</button>`;
+    }
+    // 4. STUDY & EXAMS
+    else if (lower.includes('study') || lower.includes('exam') || lower.includes('learn') || lower.includes('course')) {
+      reply = `For efficient studying on <em>"${escapeHtml(prompt)}"</em>:<br/><br/>
+      • Use <strong>Active Recall</strong> (test yourself instead of passive reading).<br/>
+      • Apply the <strong>Feynman Technique</strong> (explain concepts in simple terms).<br/>
+      • Work in 45-minute focus intervals with Binaural Alpha Waves.`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-graduation-cap"></i> Create Study Roadmap Plan</button>`;
+    }
+    // 5. HEALTH, FITNESS & HABITS
+    else if (lower.includes('health') || lower.includes('fitness') || lower.includes('gym') || lower.includes('habit') || lower.includes('sleep') || lower.includes('stress')) {
+      reply = `Great health fuels peak productivity! Key habits for <em>"${escapeHtml(prompt)}"</em>:<br/><br/>
+      • Drink 500ml water immediately upon waking.<br/>
+      • Schedule 30-45 minutes of physical movement daily.<br/>
+      • Protect 7-8 hours of sleep for cognitive recovery.`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-heartpulse"></i> Add Daily Health & Habit Plan</button>`;
+    }
+    // 6. CODING & TECH
+    else if (lower.includes('code') || lower.includes('coding') || lower.includes('javascript') || lower.includes('python') || lower.includes('web')) {
+      reply = `For mastering <em>"${escapeHtml(prompt)}"</em>: focus on building real projects rather than watching endless tutorials. Break your learning into daily 45-minute coding blocks and build small functional apps!`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-code"></i> Create 14-Day Coding Sprint</button>`;
+    }
+    // 7. GENERAL ACCURATE Q&A
+    else {
+      reply = `Here is a tailored guide for <strong>"${escapeHtml(prompt)}"</strong>:<br/><br/>
+      To succeed with this, break the main goal down into small, daily manageable tasks. Consistency and focused execution will yield the best results.<br/><br/>
+      <em>Would you like me to convert this into a step-by-step PlanTrack Plan or Timetable?</em>`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-wand-magic-sparkles"></i> Convert Prompt to Action Plan</button>`;
     }
 
     const aiRow = document.createElement('div');
