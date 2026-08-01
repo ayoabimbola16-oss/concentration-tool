@@ -2734,13 +2734,28 @@ window.startSubscription = function() {
     }
   };
 
+  // ── Detect Supabase OAuth callback (PKCE flow) ───────────────
+  // Supabase v2 PKCE returns ?code=... in the URL query string.
+  // During the code exchange, getSession() returns null even though
+  // auth is in progress. We must NOT show the auth screen yet.
+  const searchParams = new URLSearchParams(window.location.search);
+  const isOAuthCallback = searchParams.has('code') || searchParams.has('error');
+
   try {
-    const { data: { session } } = await db.auth.getSession();
-    if (session?.user) {
-      document.getElementById('auth-screen').style.display = 'none';
-      await initApp(session.user);
+    if (isOAuthCallback) {
+      // Keep splash visible while Supabase exchanges the code for tokens.
+      // onAuthStateChange will fire SIGNED_IN when the exchange completes.
+      console.log('[Auth] OAuth callback detected — waiting for session exchange...');
+      // Don't call getSession() yet; let onAuthStateChange handle it below.
     } else {
-      document.getElementById('auth-screen').style.display = 'flex';
+      // Normal page load: check for an existing stored session.
+      const { data: { session } } = await db.auth.getSession();
+      if (session?.user) {
+        document.getElementById('auth-screen').style.display = 'none';
+        await initApp(session.user);
+      } else {
+        document.getElementById('auth-screen').style.display = 'flex';
+      }
     }
   } catch(e) {
     console.error('Session check failed:', e);
@@ -2749,25 +2764,27 @@ window.startSubscription = function() {
     hideSplash();
   }
 
+  // ── Auth State Listener ─────────────────────────────────────
+  // This is the single source of truth for auth state.
+  // Handles: SIGNED_IN (OAuth callback + password login), TOKEN_REFRESHED,
+  // INITIAL_SESSION (page reload with existing session), SIGNED_OUT.
   db.auth.onAuthStateChange(async (event, session) => {
     console.log('[Auth]', event, session?.user?.email);
 
-    // Handle all events that mean "user is logged in"
     if (
       (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') &&
       session?.user
     ) {
-      // Allow re-init if user changed or currentUser was not fully set
       if (!currentUser || currentUser.id !== session.user.id) {
         closeAuthMsg();
         document.getElementById('auth-screen').style.display = 'none';
         await initApp(session.user);
       }
 
-      // Clean the URL hash after successful OAuth token pickup
-      const h = window.location.hash || '';
-      if (h.includes('access_token')) {
-        history.replaceState(null, '', window.location.pathname + window.location.search);
+      // Clean the URL after successful OAuth code exchange (remove ?code=...)
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('code') || url.hash.includes('access_token')) {
+        history.replaceState(null, '', window.location.pathname);
       }
     }
 
@@ -2778,6 +2795,7 @@ window.startSubscription = function() {
       switchTab('login');
     }
   });
+
 
   // Handle Capacitor deep links (when the app is opened via a custom URL scheme)
   if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {

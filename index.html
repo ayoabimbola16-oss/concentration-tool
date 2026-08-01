@@ -15,31 +15,45 @@
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 
-  <!-- ★ First-visit redirect: new anonymous visitors see landing page first -->
+  <!-- ★ First-visit redirect: send anonymous first-timers to landing page.
+       IMPORTANT: Must NOT redirect during a Supabase OAuth callback.
+       Supabase v2 PKCE returns ?code=... in query string (NOT #access_token in hash).
+       Custom storageKey 'plantrack-auth' means session is NOT under 'sb-' or 'supabase'. -->
   <script>
     (function() {
       try {
-        // Skip redirect if returning from Google OAuth (tokens in hash)
-        if (window.location.hash && window.location.hash.indexOf('access_token') !== -1) return;
+        var search = window.location.search || '';
+        var hash   = window.location.hash   || '';
 
-        // Skip redirect if user has already visited the landing page OR is logged in
-        var seenLanding = localStorage.getItem('pt_visited_landing');
-        if (seenLanding) return;
+        // ── 1. Never redirect during an OAuth callback ─────────────────────
+        // Supabase v2 PKCE: Google returns ?code=... in the query string
+        if (search.indexOf('code=') !== -1) return;
+        // Supabase v1 / implicit: tokens come back in the URL hash
+        if (hash.indexOf('access_token') !== -1) return;
+        // Any other Supabase callback signals
+        if (search.indexOf('error=') !== -1) return;
 
-        // Check for any active Supabase session in localStorage
+        // ── 2. Skip if user has already seen the landing page ──────────────
+        if (localStorage.getItem('pt_visited_landing')) return;
+
+        // ── 3. Skip if there is an existing session in localStorage ────────
+        // Custom storageKey: 'plantrack-auth' (set in app.js createClient)
+        var sessionRaw = localStorage.getItem('plantrack-auth');
+        if (sessionRaw && sessionRaw.indexOf('access_token') !== -1) return;
+        // Also check the default Supabase key pattern as a fallback
         for (var i = 0; i < localStorage.length; i++) {
           var k = localStorage.key(i) || '';
-          if ((k.indexOf('supabase') !== -1 || k.indexOf('sb-') !== -1)) {
+          if (k.indexOf('supabase') !== -1 || k.indexOf('sb-') !== -1) {
             var v = '';
             try { v = localStorage.getItem(k) || ''; } catch(e) {}
-            if (v.indexOf('access_token') !== -1) return; // logged in, skip redirect
+            if (v.indexOf('access_token') !== -1) return;
           }
         }
 
-        // Check referrer — if they came FROM landing.html, don't redirect back
+        // ── 4. Skip if user came directly from landing.html ────────────────
         if ((document.referrer || '').indexOf('landing') !== -1) return;
 
-        // New anonymous visitor — send them to the landing page first
+        // ── 5. Brand-new anonymous visitor → show landing page first ───────
         window.location.replace('landing.html');
       } catch(e) {}
     })();
