@@ -20,55 +20,15 @@
  * ═══════════════════════════════════════════════════════════════
  */
 (function() {
-  // ── Step 0: NEVER reload if the URL contains OAuth tokens ─────
-  //    After Google sign-in, Supabase redirects back with
-  //    #access_token=...&refresh_token=... in the hash.
-  //    We MUST let Supabase parse those tokens before any reload.
-  const hash = window.location.hash || '';
-  const hasOAuthTokens = hash.includes('access_token') || hash.includes('refresh_token');
-
-  // ── Step 1: Fresh-open reload ──────────────────────────────
-  const LAUNCH_KEY = 'pt_session_started';
-  if (!sessionStorage.getItem(LAUNCH_KEY)) {
-    sessionStorage.setItem(LAUNCH_KEY, '1');
-
-    // Skip reload entirely when returning from OAuth redirect
-    if (hasOAuthTokens) {
-      // Let the rest of the script continue so Supabase can
-      // detect and save the session from the URL hash.
-    } else {
-      // Check for a waiting SW first — if found, activate it and
-      // let the SW_UPDATED message handle the reload instead.
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistration().then(reg => {
-          if (reg && reg.waiting) {
-            // New SW waiting → activate it; it will trigger reload via SW_UPDATED
-            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-          } else {
-            // No new SW — just do a plain reload to get fresh files
-            setTimeout(() => window.location.reload(), 100);
-          }
-        }).catch(() => {
-          setTimeout(() => window.location.reload(), 100);
-        });
-      } else {
-        setTimeout(() => window.location.reload(), 100);
-      }
-      return; // stop rest of script until reload fires
-    }
-  }
-
-  // ── Step 2: Check for SW updates on every page load ────────
+  // Check for Service Worker updates gracefully without interrupting launch
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistration().then(reg => {
       if (!reg) return;
-      // If a new SW is already waiting (user had app open during push)
       if (reg.waiting) {
         reg.waiting.postMessage({ type: 'SKIP_WAITING' });
       }
-      // Ask the current SW to check for updates from server
       reg.update().catch(() => {});
-    });
+    }).catch(() => {});
   }
 })();
 
@@ -76,12 +36,15 @@
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_ANON, {
   auth: {
-    persistSession: true,         // store session in localStorage (default, explicit)
-    autoRefreshToken: true,       // auto-refresh expired tokens
-    detectSessionInUrl: true,     // parse OAuth tokens from URL hash
-    storageKey: 'plantrack-auth', // custom key to avoid collisions
+    persistSession: true,       // store session in localStorage
+    autoRefreshToken: true,     // auto-refresh expired tokens
+    detectSessionInUrl: true,   // parse OAuth tokens from URL hash automatically
+    flowType: 'implicit',       // use hash-based flow — simpler, works on any domain
+    // NOTE: no storageKey override — default key is sb-<projectRef>-auth-token
+    // which matches the redirect script's 'sb-' prefix check perfectly.
   }
 });
+
 
 // ── Global State ─────────────────────────────────────────────────
 let currentUser             = null;
@@ -243,14 +206,20 @@ function toast(msg, type = 'info') {
 
 function showAuthMsg(msg, type = 'error') {
   const el = document.getElementById('auth-msg');
+  if (!el) return;
   el.textContent = msg;
   el.className = `auth-msg ${type}`;
   el.style.display = 'block';
+  // Auto-clear info/success messages so they don't stay stuck
+  clearTimeout(el._authTimer);
+  if (type === 'info' || type === 'success') {
+    el._authTimer = setTimeout(() => { el.style.display = 'none'; }, 6000);
+  }
 }
 
 function closeAuthMsg() {
   const el = document.getElementById('auth-msg');
-  if (el) el.style.display = 'none';
+  if (el) { el.style.display = 'none'; clearTimeout(el._authTimer); }
 }
 
 function closeModal(id) {
@@ -563,7 +532,19 @@ async function login() {
   if (!username) { showAuthMsg('Please enter your username.'); return; }
   if (!password) { showAuthMsg('Please enter your password.'); return; }
 
+  // Show loading state on button
+  const loginBtn = document.querySelector('#tab-login .auth-btn');
+  const originalBtnHTML = loginBtn ? loginBtn.innerHTML : '';
+  if (loginBtn) {
+    loginBtn.disabled = true;
+    loginBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Signing in…';
+  }
+  const resetBtn = () => {
+    if (loginBtn) { loginBtn.disabled = false; loginBtn.innerHTML = originalBtnHTML; }
+  };
+
   showAuthMsg('Signing in...', 'info');
+
 
   try {
     // Step 1: find email from username (case-insensitive match)
@@ -595,11 +576,13 @@ async function login() {
       } else {
         showAuthMsg('Error looking up username (' + (profileError.message || 'unknown') + '). Please try again.');
       }
+      resetBtn();
       return;
     }
 
     if (!profile) {
       showAuthMsg('Username not found. Please check spelling and try again.');
+      resetBtn();
       return;
     }
 
@@ -621,19 +604,23 @@ async function login() {
       } else {
         showAuthMsg(error.message || 'Sign-in failed. Please try again.');
       }
+      resetBtn();
       return;
     }
 
     if (!data || !data.user) {
       showAuthMsg('Login failed unexpectedly. Please try again.');
+      resetBtn();
       return;
     }
 
     closeAuthMsg();
+    resetBtn();
     await initApp(data.user);
 
   } catch (err) {
     console.error('[PlanTrack Login] Unexpected exception:', err);
+    resetBtn();
     if (!navigator.onLine) {
       showAuthMsg('You are offline. Please check your internet connection.');
     } else {
@@ -643,114 +630,65 @@ async function login() {
 }
 
 async function signInWithGoogle() {
+  const btn = document.querySelector('.google-sign-btn');
   try {
-    // Build the redirect URL. On native Capacitor we use custom deep link scheme.
-    const isCapacitor = window.Capacitor && window.Capacitor.isNative;
-    const currentUrl = window.location.href.split('#')[0].split('?')[0];
-    const redirectTo = isCapacitor ? 'com.lenovo.plantrack://login-callback' : currentUrl;
+    // Show loading state
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; }
+    showAuthMsg('Connecting to Google…', 'info');
 
-    showAuthMsg(isCapacitor ? 'Redirecting to Google…' : 'Opening Google sign-in…', 'info');
+    const isCapacitor = !!(window.Capacitor && window.Capacitor.isNative);
 
-    // ── Get the OAuth URL without navigating away ──────────────
-    const { data, error } = await db.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: redirectTo,
-        skipBrowserRedirect: true   // ← don't navigate, just give us the URL
-      }
-    });
-    if (error) throw error;
+    // ✅ Use the ACTUAL current page URL (works on localhost AND GitHub Pages subpaths)
+    // e.g. https://ayoabimbola16-oss.github.io/concentration-tool/index.html
+    const cleanUrl  = window.location.href.split('#')[0].split('?')[0];
+    const redirectTo = isCapacitor ? 'com.lenovo.plantrack://login-callback' : cleanUrl;
 
-    if (!data?.url) {
-      showAuthMsg('Could not start Google sign-in. Please try again.');
-      return;
-    }
+    // Mark landing as visited BEFORE redirect so the page loads correctly when Google returns
+    try { localStorage.setItem('pt_visited_landing', '1'); } catch(e) {}
 
-    // ── Capacitor Native: Open in external Chrome/System Browser ──
+    // ── Capacitor Native App ──────────────────────────────────────
     if (isCapacitor) {
-      if (window.Capacitor.Plugins && window.Capacitor.Plugins.Browser) {
+      const { data, error } = await db.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo, skipBrowserRedirect: true }
+      });
+      if (error) throw error;
+      if (!data?.url) throw new Error('No OAuth URL returned');
+      if (window.Capacitor.Plugins?.Browser) {
         await window.Capacitor.Plugins.Browser.open({ url: data.url, windowName: '_system' });
       } else {
         window.open(data.url, '_system');
       }
+      if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
       return;
     }
 
-    // ── Web Popup Flow ──
-    const w = 500, h = 620;
-    const left = Math.max(0, (screen.width - w) / 2);
-    const top  = Math.max(0, (screen.height - h) / 2);
-    const popup = window.open(
-      data.url,
-      'google-auth',
-      `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes`
-    );
+    // ── Web: Full-Page Redirect ───────────────────────────────────
+    // Supabase will automatically redirect the browser to Google.
+    // After the user signs in, Google redirects back to `cleanUrl`
+    // with tokens in the URL hash → onAuthStateChange fires → initApp()
+    const { error } = await db.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: cleanUrl }
+    });
 
-    // Fallback: if popup was blocked, fall back to full redirect
-    if (!popup || popup.closed) {
-      showAuthMsg('Popup blocked — redirecting…', 'info');
-      window.location.href = data.url;
-      return;
-    }
-
-    // ── Poll the popup until it redirects back with tokens ────
-    const pollTimer = setInterval(async () => {
-      try {
-        // Popup was closed manually by the user
-        if (!popup || popup.closed) {
-          clearInterval(pollTimer);
-          closeAuthMsg();
-          // Check if maybe the session was set anyway
-          const { data: { session } } = await db.auth.getSession();
-          if (!session) {
-            showAuthMsg('Sign-in was cancelled.');
-          }
-          return;
-        }
-
-        // Try to read the popup's URL — throws while on Google's domain
-        const popupUrl = popup.location.href;
-
-        // Check if the popup redirected back to our origin with tokens
-        if (popupUrl.startsWith(currentUrl) || popupUrl.startsWith(window.location.origin)) {
-          const hashFragment = popup.location.hash;
-
-          // Only process if we actually have tokens in the hash
-          if (hashFragment && hashFragment.includes('access_token')) {
-            clearInterval(pollTimer);
-            popup.close();
-
-            // Parse tokens from the hash fragment
-            const params = new URLSearchParams(hashFragment.substring(1));
-            const access_token  = params.get('access_token');
-            const refresh_token = params.get('refresh_token');
-
-            if (access_token && refresh_token) {
-              // Set the session on our main-window Supabase client
-              const { error: sessErr } = await db.auth.setSession({
-                access_token,
-                refresh_token
-              });
-              if (sessErr) {
-                console.error('[Google Auth] setSession error:', sessErr);
-                showAuthMsg('Error completing sign-in: ' + sessErr.message);
-              }
-              // onAuthStateChange will handle the rest (hide auth screen, init app)
-            } else {
-              showAuthMsg('Sign-in failed — missing tokens. Please try again.');
-            }
-          }
-        }
-      } catch (e) {
-        // Cross-origin error — popup is still on Google/Supabase domain, keep polling
-      }
-    }, 400);
+    if (error) throw error;
+    // ↑ Page navigates away here — nothing below runs until Google returns
 
   } catch (err) {
     console.error('[Google Auth]', err);
-    showAuthMsg('Error signing in with Google: ' + err.message);
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+    closeAuthMsg();
+    const msg = (err.message || '').toLowerCase();
+    if (msg.includes('redirect') || msg.includes('uri') || msg.includes('origin')) {
+      showAuthMsg('Google sign-in: redirect URL not registered. Please contact the app owner.');
+    } else {
+      showAuthMsg('Google sign-in failed: ' + (err.message || 'Please try again.'));
+    }
   }
 }
+
+
 
 async function register() {
   const username = document.getElementById('r-user').value.trim();
@@ -785,11 +723,13 @@ async function register() {
       if (profileErr) {
         console.warn('Profile upsert failed during register, will complete on login:', profileErr.message);
       }
-      showAuthMsg('Account created! You can now sign in.', 'success');
+      showAuthMsg('Account created! Check your email to confirm, then sign in.', 'success');
       document.getElementById('r-user').value = '';
       document.getElementById('r-email').value = '';
       document.getElementById('r-pass').value = '';
-      setTimeout(() => switchTab('login'), 1500);
+      const confirmEl = document.getElementById('r-pass-confirm');
+      if (confirmEl) confirmEl.value = '';
+      setTimeout(() => switchTab('login'), 2000);
     }
   } catch (err) {
     showAuthMsg('An error occurred. Please try again.');
@@ -830,32 +770,58 @@ async function initApp(user) {
   currentUser   = user;
   currentUserId = user.id;
 
+  // Immediately hide auth screen and show main app
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  // Mark landing as visited so logged-in users skip landing page redirect
+  try { localStorage.setItem('pt_visited_landing', '1'); } catch(e) {}
+
   // Load profile
-  let { data: profile } = await db.from('profiles').select('*').eq('id', user.id).maybeSingle();
-  
-  const needsProfileSetup = !profile || !profile.username || !profile.avatar_url;
+  let profile = null;
+  try {
+    const { data } = await db.from('profiles').select('*').eq('id', user.id).maybeSingle();
+    profile = data;
+  } catch(err) {
+    console.warn('[initApp] Profile load error:', err);
+  }
+
+  // If no profile exists yet (e.g. new Google OAuth user), auto-create one
+  if (!profile) {
+    const meta = user.user_metadata || {};
+    const rawName = meta.username || meta.full_name || meta.name || user.email?.split('@')[0] || 'user';
+    const cleanUsername = rawName.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+
+    const newProfilePayload = {
+      id: user.id,
+      username: cleanUsername,
+      email: user.email,
+      avatar_url: meta.avatar_url || meta.picture || ''
+    };
+
+    try {
+      const { data: createdProfile } = await db.from('profiles').upsert(newProfilePayload, { onConflict: 'id' }).select('*').maybeSingle();
+      profile = createdProfile || newProfilePayload;
+    } catch(e) {
+      profile = newProfilePayload;
+    }
+  }
+
+  const needsProfileSetup = !profile || !profile.username;
 
   if (needsProfileSetup) {
-    // Pre-fill username if they already have one (only avatar missing)
     if (profile && profile.username) {
       const setupInput = document.getElementById('setup-username-input');
       if (setupInput) setupInput.value = profile.username;
     }
 
-    // Show the complete profile modal
     openModal('modal-complete-profile');
 
-    // Update modal subtitle based on what's missing
     const modalP = document.querySelector('#modal-complete-profile .mb p');
     if (modalP) {
-      if (!profile || !profile.username) {
-        modalP.textContent = 'Welcome! Please choose a username and upload a profile picture to continue.';
-      } else {
-        modalP.textContent = 'Almost there! Please upload a profile picture to complete your account setup.';
-      }
+      modalP.textContent = 'Welcome! Please choose a username to complete your setup.';
     }
 
-    // Hide the close button to force completion
     const closeBtn = document.querySelector('#modal-complete-profile .mclose');
     if (closeBtn) closeBtn.style.display = 'none';
   }
@@ -875,17 +841,17 @@ async function initApp(user) {
     adminNav.style.display = (profile && profile.is_admin) ? 'block' : 'none';
   }
 
-  // Sync daily streak (Supabase-backed)
-  await syncStreak();
+  // Update PlanTrack PRO Trial status badge
+  if (window.checkProTrialStatus) window.checkProTrialStatus();
 
-  document.getElementById('auth-screen').style.display = 'none';
-  document.getElementById('app').style.display = 'block';
-
-  await loadUserSounds();
+  // Non-blocking async tasks
+  syncStreak().catch(err => console.warn('[initApp] Streak sync error:', err));
+  loadUserSounds().catch(err => console.warn('[initApp] Sounds load error:', err));
 
   // Restore last visited section (so refresh stays on same page)
   const lastSection = (() => { try { return localStorage.getItem('pt_last_section') || 'alarms'; } catch(e) { return 'alarms'; } })();
   showSection(lastSection);
+
 
   startAlarmChecker();
   startAlarmCountdown();
@@ -1857,132 +1823,357 @@ async function snoozeAlarm(isRemote = false) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  TIMETABLE
+//  TIMETABLE — SMART UNIFIED CREATOR
 // ═══════════════════════════════════════════════════════════════
-function openTimetableModal(tt = null) {
-  ttEditId = tt ? tt.id : null;
-  document.getElementById('tt-type').value = tt?.tt_type || '';
-  document.getElementById('modal-tt1').style.display = 'flex';
+
+// ── Column Chip Management ────────────────────────────────────
+let _ttcCols = []; // current columns list
+
+function initTTCChips(cols = ['Day', 'Subject', 'Time', 'Venue']) {
+  _ttcCols = [...cols];
+  renderTTCChips();
 }
 
-function goTTStep2() {
-  const type = document.getElementById('tt-type').value.trim();
-  if (!type) { toast('Please enter a timetable type.','error'); return; }
-  document.getElementById('modal-tt1').style.display = 'none';
-  document.getElementById('tt2-heading').innerHTML = `<i class="fa fa-calendar-alt" style="color:var(--accent)"></i> ${escHtml(type)}`;
-  document.getElementById('tt-type-badge').innerHTML = `<strong>${escHtml(type)} Timetable</strong><br>Add your schedule rows below.`;
-  if (ttEditId) {
-    db.from('timetables').select('*').eq('id',ttEditId).single().then(({ data }) => {
-      if (!data) return;
-      if (data.columns) document.getElementById('tt-cols').value = data.columns.join(',');
-      buildTTTable();
-      if (data.rows) {
-        const tbody = document.querySelector('#tt-table-wrap tbody');
-        if (tbody) tbody.innerHTML = '';
-        data.rows.forEach(row => addTTRow(row));
+function renderTTCChips() {
+  const wrap = document.getElementById('ttc-col-chips');
+  const placeholder = document.getElementById('ttc-chips-placeholder');
+  if (!wrap) return;
+
+  // Clear old chips
+  Array.from(wrap.querySelectorAll('.ttc-col-chip')).forEach(el => el.remove());
+
+  if (placeholder) placeholder.style.display = _ttcCols.length ? 'none' : 'inline';
+
+  _ttcCols.forEach((col, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'ttc-col-chip';
+    chip.setAttribute('draggable', 'true');
+    chip.dataset.idx = i;
+    chip.innerHTML = `${escHtml(col)} <button class="chip-del" type="button" onclick="removeTTCCol(${i})" title="Remove column">×</button>`;
+
+    // Drag-to-reorder
+    chip.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', i);
+      chip.style.opacity = '0.5';
+    });
+    chip.addEventListener('dragend', () => chip.style.opacity = '1');
+    chip.addEventListener('dragover', e => e.preventDefault());
+    chip.addEventListener('drop', e => {
+      e.preventDefault();
+      const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+      const toIdx = parseInt(chip.dataset.idx);
+      if (fromIdx !== toIdx) {
+        const moved = _ttcCols.splice(fromIdx, 1)[0];
+        _ttcCols.splice(toIdx, 0, moved);
+        renderTTCChips();
+        rebuildTTCTable();
       }
     });
-  } else {
-    buildTTTable(); addTTRow(); addTTRow(); addTTRow();
-  }
-  document.getElementById('modal-tt2').style.display = 'flex';
-}
 
-function backToTT1() { closeModal('modal-tt2'); document.getElementById('modal-tt1').style.display='flex'; }
-
-function buildTTTable() {
-  const cols = document.getElementById('tt-cols').value.split(',').map(c=>c.trim()).filter(Boolean);
-  if (!cols.length) { toast('Please enter column headers.','error'); return; }
-  const wrap = document.getElementById('tt-table-wrap');
-  const existingRows = wrap.querySelectorAll('tbody tr');
-  const rowData = [];
-  existingRows.forEach(tr => rowData.push(Array.from(tr.querySelectorAll('input')).map(i=>i.value)));
-  wrap.innerHTML = `<table class="tt-table">
-    <thead><tr>${cols.map(c=>`<th>${escHtml(c)}</th>`).join('')}<th style="width:36px"></th></tr></thead>
-    <tbody></tbody></table>`;
-  rowData.forEach(rd => addTTRow(rd));
-}
-
-function addTTRow(values = []) {
-  const cols  = document.getElementById('tt-cols').value.split(',').map(c=>c.trim()).filter(Boolean);
-  const tbody = document.querySelector('#tt-table-wrap tbody');
-  if (!tbody) { toast('Please apply column headers first.','error'); return; }
-  const tr = document.createElement('tr');
-  tr.innerHTML = cols.map((_,i)=>`<td><input type="text" value="${escHtml(values[i]||'')}" placeholder="..."/></td>`).join('')
-    + `<td><button class="tt-row-del" onclick="this.closest('tr').remove()" type="button"><i class="fa fa-times"></i></button></td>`;
-  tbody.appendChild(tr);
-}
-
-async function saveTimetable() {
-  const type  = document.getElementById('tt-type').value.trim();
-  const cols  = document.getElementById('tt-cols').value.split(',').map(c=>c.trim()).filter(Boolean);
-  const tbody = document.querySelector('#tt-table-wrap tbody');
-  if (!tbody) { toast('Please build the table first.','error'); return; }
-  const rows = Array.from(tbody.querySelectorAll('tr')).map(tr=>Array.from(tr.querySelectorAll('input')).map(i=>i.value)).filter(r=>r.some(c=>c.trim()));
-  if (!type)        { toast('Timetable type is required.','error'); return; }
-  if (!rows.length) { toast('Please add at least one row.','error'); return; }
-  const payload = { user_id:currentUserId, tt_type:type, columns:cols, rows };
-  let error;
-  if (ttEditId) {
-    ({error} = await db.from('timetables').update(payload).eq('id',ttEditId).eq('user_id',currentUserId));
-  } else {
-    ({error} = await db.from('timetables').insert(payload));
-  }
-  if (error) { toast('Error saving timetable: '+error.message,'error'); return; }
-  toast(ttEditId?'Timetable updated!':'Timetable saved!','success');
-  closeModal('modal-tt2'); loadTimetables();
-}
-
-async function loadTimetables() {
-  const { data } = await db.from('timetables').select('*').eq('user_id',currentUserId).order('created_at',{ascending:false});
-  renderTimetables(data||[]);
-}
-
-function renderTimetables(list) {
-  const grid  = document.getElementById('timetable-grid');
-  const empty = document.getElementById('tt-empty');
-  grid.innerHTML = '';
-  if (!list.length) { empty.style.display='block'; return; }
-  empty.style.display = 'none';
-  list.forEach(tt => {
-    const card = document.createElement('div');
-    card.className = 'tt-card';
-    card.innerHTML = `
-      <div class="tt-card-title">${escHtml(tt.tt_type)}</div>
-      <div class="tt-type-pill"><i class="fa fa-table"></i> Timetable</div>
-      <div class="tt-card-meta">${tt.rows?.length||0} rows · ${tt.columns?.length||0} columns</div>
-      <div class="tt-card-actions">
-        <button class="icon-btn" onclick="viewTimetable('${tt.id}')" type="button"><i class="fa fa-eye"></i> View</button>
-        <button class="icon-btn" onclick="shareTimetable('${tt.id}')" type="button"><i class="fa fa-share-alt"></i> Share</button>
-        <button class="icon-btn" onclick="editTimetable('${tt.id}')" type="button"><i class="fa fa-edit"></i> Edit</button>
-        <button class="icon-btn del" onclick="confirmDelete('timetable','${tt.id}','${escHtml(tt.tt_type)}')" type="button"><i class="fa fa-trash"></i></button>
-      </div>`;
-    grid.appendChild(card);
+    wrap.appendChild(chip);
   });
+
+  // Mark suggestion buttons as used
+  const suggBtns = document.querySelectorAll('.ttc-sugg-btn');
+  suggBtns.forEach(btn => {
+    const colName = btn.textContent.trim().replace(/^[^\s]+\s/, ''); // strip emoji
+    btn.classList.toggle('used', _ttcCols.includes(colName));
+  });
+
+  // Sync hidden input
+  const hiddenInput = document.getElementById('ttc-cols');
+  if (hiddenInput) hiddenInput.value = _ttcCols.join(',');
 }
 
-async function viewTimetable(id) {
-  const { data:tt } = await db.from('timetables').select('*').eq('id',id).single();
-  if (!tt) return;
-  document.getElementById('ttv-heading').innerHTML = `<i class="fa fa-calendar-alt" style="color:var(--accent)"></i> ${escHtml(tt.tt_type)}`;
-  document.getElementById('ttv-body').innerHTML = `<div class="tt-table-wrap">
-    <table class="tt-table">
-      <thead><tr>${tt.columns.map(c=>`<th>${escHtml(c)}</th>`).join('')}</tr></thead>
-      <tbody>${(tt.rows||[]).map(row=>`<tr>${row.map(c=>`<td>${escHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody>
-    </table></div>`;
-  openModal('modal-tt-view');
+window.addTTCCol = function(name) {
+  if (!name || _ttcCols.includes(name)) {
+    if (_ttcCols.includes(name)) toast(`"${name}" column already added`, 'info');
+    return;
+  }
+  _ttcCols.push(name);
+  renderTTCChips();
+  rebuildTTCTable();
+};
+
+window.addTTCColFromInput = function() {
+  const inp = document.getElementById('ttc-col-custom-input');
+  if (!inp) return;
+  const name = inp.value.trim();
+  if (!name) { toast('Please type a column name', 'error'); return; }
+  addTTCCol(name);
+  inp.value = '';
+  inp.focus();
+};
+
+window.removeTTCCol = function(idx) {
+  _ttcCols.splice(idx, 1);
+  renderTTCChips();
+  rebuildTTCTable();
+};
+
+const TT_TEMPLATES = {
+  school: {
+    name: 'School Week',
+    cols: ['Day', 'Subject', 'Time', 'Room', 'Teacher'],
+    rows: [
+      ['Monday', 'Mathematics', '08:00 - 09:30', 'Room 12', 'Mr. Adams'],
+      ['Monday', 'English', '09:45 - 11:15', 'Room 7', 'Mrs. Jane'],
+      ['Monday', 'Lunch Break', '12:00 - 13:00', '-', '-'],
+      ['Tuesday', 'Science', '08:00 - 09:30', 'Lab 3', 'Mr. Obi'],
+      ['Tuesday', 'History', '09:45 - 11:15', 'Room 5', 'Mrs. Kemi'],
+      ['Wednesday', 'Mathematics', '08:00 - 09:30', 'Room 12', 'Mr. Adams'],
+      ['Wednesday', 'Geography', '09:45 - 11:15', 'Room 9', 'Mr. Bello'],
+      ['Thursday', 'Biology', '08:00 - 09:30', 'Lab 1', 'Mrs. Tunde'],
+      ['Thursday', 'English', '09:45 - 11:15', 'Room 7', 'Mrs. Jane'],
+      ['Friday', 'Sports / PE', '09:00 - 11:00', 'Hall', 'Coach Seun'],
+    ]
+  },
+  work: {
+    name: 'Work Schedule',
+    cols: ['Day', 'Task / Meeting', 'Time', 'Location', 'Priority'],
+    rows: [
+      ['Monday', 'Team Standup', '09:00 - 09:30', 'Conference Room A', 'High'],
+      ['Monday', 'Project Review', '10:00 - 11:30', 'Online (Zoom)', 'High'],
+      ['Tuesday', 'Client Call', '11:00 - 12:00', 'Phone / Meet', 'High'],
+      ['Tuesday', 'Report Writing', '14:00 - 16:00', 'Office Desk', 'Medium'],
+      ['Wednesday', 'Weekly All-Hands', '09:30 - 10:30', 'Main Hall', 'High'],
+      ['Thursday', 'Deep Work Block', '09:00 - 12:00', 'Quiet Zone', 'High'],
+      ['Friday', 'Team Sync', '09:00 - 09:30', 'Conference B', 'Medium'],
+      ['Friday', 'Weekly Review', '16:00 - 17:00', 'Office', 'Low'],
+    ]
+  },
+  study: {
+    name: 'Study Plan',
+    cols: ['Day', 'Subject', 'Time', 'Topics', 'Goal'],
+    rows: [
+      ['Monday', 'Mathematics', '07:00 - 09:00', 'Algebra & Calculus', 'Complete Chapter 5'],
+      ['Monday', 'Physics', '19:00 - 21:00', 'Mechanics', 'Past Questions Practice'],
+      ['Tuesday', 'English', '07:00 - 08:30', 'Essay Writing', 'Write 2 essays'],
+      ['Tuesday', 'Chemistry', '19:00 - 21:00', 'Organic Chem', 'Review notes'],
+      ['Wednesday', 'Mathematics', '07:00 - 09:00', 'Statistics', 'Problem sets'],
+      ['Thursday', 'Biology', '19:00 - 21:00', 'Cell Biology', 'Diagrams revision'],
+      ['Friday', 'All Subjects', '09:00 - 12:00', 'Mock Exam Practice', 'Full past paper'],
+    ]
+  },
+  gym: {
+    name: 'Gym / Fitness Plan',
+    cols: ['Day', 'Workout', 'Time', 'Sets x Reps', 'Notes'],
+    rows: [
+      ['Monday', 'Chest & Triceps', '06:00 - 07:30', 'Bench Press 4x10', 'Increase weight'],
+      ['Tuesday', 'Back & Biceps', '06:00 - 07:30', 'Pull-ups 4x8', 'Full range of motion'],
+      ['Wednesday', 'Rest / Light Cardio', '06:00 - 06:30', '30 min jog', 'Active recovery'],
+      ['Thursday', 'Legs', '06:00 - 07:30', 'Squats 5x10', 'Use belt for heavy sets'],
+      ['Friday', 'Shoulders & Core', '06:00 - 07:30', 'Military Press 4x10', 'Slow negatives'],
+      ['Saturday', 'Full Body HIIT', '07:00 - 08:00', '20 min circuit', 'Keep heart rate up'],
+      ['Sunday', 'Rest & Stretch', '-', '-', 'Recovery day'],
+    ]
+  },
+  meeting: {
+    name: 'Meetings Schedule',
+    cols: ['Day', 'Meeting', 'Time', 'Attendees', 'Agenda'],
+    rows: [
+      ['Monday', 'Team Standup', '09:00', 'All Team', 'Daily progress update'],
+      ['Tuesday', 'Client Review', '11:00', 'Client + PM', 'Q3 deliverables'],
+      ['Wednesday', 'Product Demo', '14:00', 'Dev + Design', 'Sprint review'],
+      ['Thursday', 'Strategy Call', '10:00', 'Directors', 'Q4 Planning'],
+      ['Friday', 'Weekly Wrap', '16:00', 'All Team', 'Highlights & blockers'],
+    ]
+  },
+  meal: {
+    name: 'Meal Plan',
+    cols: ['Day', 'Meal', 'Time', 'Food Items', 'Calories'],
+    rows: [
+      ['Monday', 'Breakfast', '07:00', 'Oats, banana, milk', '~350 kcal'],
+      ['Monday', 'Lunch', '13:00', 'Rice, grilled chicken, salad', '~600 kcal'],
+      ['Monday', 'Dinner', '19:00', 'Pasta, vegetables, juice', '~500 kcal'],
+      ['Tuesday', 'Breakfast', '07:00', 'Eggs, toast, tea', '~300 kcal'],
+      ['Tuesday', 'Lunch', '13:00', 'Yam, egg sauce, veggies', '~550 kcal'],
+      ['Tuesday', 'Dinner', '19:00', 'Soup and bread', '~450 kcal'],
+      ['Wednesday', 'Breakfast', '07:00', 'Smoothie bowl, nuts', '~320 kcal'],
+      ['Wednesday', 'Lunch', '13:00', 'Jollof rice, fish, plantain', '~700 kcal'],
+      ['Wednesday', 'Dinner', '19:00', 'Light salad + protein shake', '~350 kcal'],
+    ]
+  }
+};
+
+let ttcEditId = null;
+
+
+
+function openTimetableModal(tt = null) {
+  ttcEditId = tt ? tt.id : null;
+
+  const nameEl  = document.getElementById('ttc-name');
+  const wrap    = document.getElementById('ttc-table-wrap');
+  const heading = document.getElementById('ttc-heading');
+  const aiProm  = document.getElementById('ttc-ai-prompt');
+
+  if (nameEl)  nameEl.value = tt?.tt_type || '';
+  if (wrap)    wrap.innerHTML = '';
+  if (heading) heading.textContent = tt ? 'Edit Timetable' : 'Create Timetable';
+  if (aiProm)  aiProm.value = '';
+
+  // Init chips from existing timetable or default
+  const startCols = tt?.columns?.length ? tt.columns : ['Day', 'Subject', 'Time', 'Venue'];
+  initTTCChips(startCols);
+
+  if (tt && tt.rows) {
+    tt.rows.forEach(r => addTTCRow(r));
+  } else {
+    // 3 empty starter rows
+    addTTCRow(); addTTCRow(); addTTCRow();
+  }
+  openModal('modal-tt-create');
 }
+
+function rebuildTTCTable() {
+  const cols = _ttcCols.length ? _ttcCols : (document.getElementById('ttc-cols')?.value || '').split(',').map(c => c.trim()).filter(Boolean);
+  if (!cols.length) { toast('Add at least one column first', 'error'); return; }
+
+  const wrap = document.getElementById('ttc-table-wrap');
+  // Save existing row values before rebuilding
+  const existRows = wrap ? Array.from(wrap.querySelectorAll('tbody tr')).map(tr =>
+    Array.from(tr.querySelectorAll('input')).map(i => i.value)) : [];
+
+  wrap.innerHTML = `<table class="tt-table">
+    <thead><tr>${cols.map(c => `<th>${escHtml(c)}</th>`).join('')}<th style="width:32px"></th></tr></thead>
+    <tbody></tbody></table>`;
+  existRows.forEach(r => addTTCRow(r));
+}
+
+function addTTCRow(values = []) {
+  const cols  = _ttcCols.length ? _ttcCols : [];
+  const tbody = document.querySelector('#ttc-table-wrap tbody');
+  if (!tbody) { rebuildTTCTable(); return; }
+  const tr = document.createElement('tr');
+  tr.innerHTML = cols.map((_, i) =>
+    `<td><input type="text" value="${escHtml(values[i] || '')}" placeholder="—"/></td>`
+  ).join('') + `<td style="text-align:center;padding:2px 4px">
+    <button type="button" onclick="this.closest('tr').remove()"
+      style="background:none;border:none;color:var(--text3);cursor:pointer;padding:5px;font-size:.8rem"
+      onmouseover="this.style.color='#e74c3c'" onmouseout="this.style.color='var(--text3)'">
+      <i class="fa fa-times"></i>
+    </button></td>`;
+  tbody.appendChild(tr);
+  if (!values.length) setTimeout(() => { const f = tr.querySelector('input'); if(f) f.focus(); }, 50);
+}
+
+window.applyTTTemplate = function(templateKey) {
+  const t = TT_TEMPLATES[templateKey];
+  if (!t) return;
+  const nameEl = document.getElementById('ttc-name');
+  if (nameEl && !nameEl.value.trim()) nameEl.value = t.name;
+  // Set chips to template columns
+  initTTCChips(t.cols);
+  // Clear existing rows and add template rows
+  const wrap = document.getElementById('ttc-table-wrap');
+  if (wrap) wrap.innerHTML = '';
+  rebuildTTCTable();
+  t.rows.forEach(r => addTTCRow(r));
+  toast(`✅ "${t.name}" template applied — edit cells then save!`, 'success');
+};
+
+window.generateAITimetable = async function() {
+  const prompt = (document.getElementById('ttc-ai-prompt')?.value || '').trim();
+  if (!prompt) { toast('Please describe what you want', 'error'); return; }
+  const btn = document.getElementById('ttc-ai-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Building...'; }
+
+  await new Promise(r => setTimeout(r, 1200));
+
+  const lower = prompt.toLowerCase();
+  let cols, rows, name;
+
+  if (lower.includes('school') || lower.includes('class') || lower.includes('lesson') || lower.includes('subject')) {
+    ({ cols, rows, name } = TT_TEMPLATES.school);
+    name = 'School Timetable (AI)';
+  } else if (lower.includes('work') || lower.includes('meeting') || lower.includes('office')) {
+    ({ cols, rows, name } = TT_TEMPLATES.work);
+    name = 'Work Schedule (AI)';
+  } else if (lower.includes('gym') || lower.includes('workout') || lower.includes('fitness') || lower.includes('exercise')) {
+    ({ cols, rows, name } = TT_TEMPLATES.gym);
+    name = 'Fitness Plan (AI)';
+  } else if (lower.includes('meal') || lower.includes('food') || lower.includes('diet') || lower.includes('eat')) {
+    ({ cols, rows, name } = TT_TEMPLATES.meal);
+    name = 'Meal Plan (AI)';
+  } else if (lower.includes('study') || lower.includes('revision') || lower.includes('exam')) {
+    ({ cols, rows, name } = TT_TEMPLATES.study);
+    name = 'Study Plan (AI)';
+  } else if (lower.includes('meeting') || lower.includes('agenda') || lower.includes('client')) {
+    ({ cols, rows, name } = TT_TEMPLATES.meeting);
+    name = 'Meetings Schedule (AI)';
+  } else {
+    cols = ['Day', 'Activity', 'Time', 'Notes'];
+    rows = [
+      ['Monday', 'Morning Routine', '06:00 - 07:00', 'Your custom schedule'],
+      ['Monday', 'Core Task', '09:00 - 12:00', 'Main work block'],
+      ['Tuesday', 'Morning Routine', '06:00 - 07:00', 'Your custom schedule'],
+      ['Tuesday', 'Core Task', '09:00 - 12:00', 'Main work block'],
+      ['Wednesday', 'Review', '10:00 - 12:00', 'Progress check'],
+      ['Thursday', 'Core Task', '09:00 - 12:00', 'Main work block'],
+      ['Friday', 'Weekly Wrap-up', '16:00 - 17:00', 'Review & plan ahead'],
+    ];
+    name = 'Custom Schedule (AI)';
+  }
+
+  const nameEl = document.getElementById('ttc-name');
+  if (nameEl && !nameEl.value.trim()) nameEl.value = name;
+  initTTCChips(cols);
+  const wrap = document.getElementById('ttc-table-wrap');
+  if (wrap) wrap.innerHTML = '';
+  rebuildTTCTable();
+  rows.forEach(r => addTTCRow(r));
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-wand-magic-sparkles"></i> Generate'; }
+  const promptEl = document.getElementById('ttc-ai-prompt');
+  if (promptEl) promptEl.value = '';
+  toast(`🤖 AI built "${name}" — review and edit, then save!`, 'success');
+};
+
+window.saveTimetableNew = async function() {
+  const name  = (document.getElementById('ttc-name')?.value || '').trim();
+  const cols  = _ttcCols.length ? _ttcCols : [];
+  const tbody = document.querySelector('#ttc-table-wrap tbody');
+  if (!name)        { toast('Please enter a timetable name', 'error'); return; }
+  if (!cols.length) { toast('Please add at least one column', 'error'); return; }
+  if (!tbody)       { toast('Please build the table first', 'error'); return; }
+  const rows = Array.from(tbody.querySelectorAll('tr'))
+    .map(tr => Array.from(tr.querySelectorAll('input')).map(i => i.value))
+    .filter(r => r.some(c => c.trim()));
+  if (!rows.length) { toast('Add at least one row of data', 'error'); return; }
+
+  const payload = { user_id: currentUserId, tt_type: name, columns: cols, rows };
+  let error;
+  if (ttcEditId) {
+    ({ error } = await db.from('timetables').update(payload).eq('id', ttcEditId).eq('user_id', currentUserId));
+  } else {
+    ({ error } = await db.from('timetables').insert(payload));
+  }
+  if (error) { toast('Error saving timetable: ' + error.message, 'error'); return; }
+  toast(ttcEditId ? '✅ Timetable updated!' : '✅ Timetable saved!', 'success');
+  closeModal('modal-tt-create');
+  ttcEditId = null;
+  _ttcCols = [];
+  loadTimetables();
+};
+
+// Legacy compat shims
+function goTTStep2()  { openTimetableModal(); }
+function backToTT1() { closeModal('modal-tt-create'); }
+function buildTTTable() { rebuildTTCTable(); }
+function addTTRow(v) { addTTCRow(v); }
+async function saveTimetable() { await saveTimetableNew(); }
 
 async function editTimetable(id) {
-  const { data:tt } = await db.from('timetables').select('*').eq('id',id).single();
+  const { data: tt } = await db.from('timetables').select('*').eq('id', id).single();
   if (!tt) return;
-  ttEditId = id;
-  document.getElementById('tt-type').value = tt.tt_type;
-  goTTStep2();
+  ttcEditId = id;
+  openTimetableModal(tt);
 }
 
 // ═══════════════════════════════════════════════════════════════
 //  FILE MANAGER
+
 // ═══════════════════════════════════════════════════════════════
 function openFolderModal(folder = null) {
   editingFolderId = folder ? folder.id : null;
@@ -2422,7 +2613,7 @@ function showPlanReminderNotification(plan, incomplete) {
       ? `Pending: ${incomplete.map(a=>a.text).join(', ')}`
       : `You have ${incomplete.length} pending activities.`;
     const notif = new Notification(`📋 ${plan.title} — Reminder`, {
-      body, icon:'./WhatsApp Image 2026-04-07 at 20.53.13.jpeg', tag:`plan-reminder-${plan.id}`, requireInteraction:false,
+      body, icon:'./assets/images/logo.jpeg', tag:`plan-reminder-${plan.id}`, requireInteraction:false,
     });
     notif.onclick = () => { window.focus(); showSection('plans'); notif.close(); };
     setTimeout(() => notif.close(), 8000);
@@ -2568,6 +2759,9 @@ window.startSubscription = function() {
     }
   };
 
+  // ── Check for existing session (works for both page refresh AND
+  //    implicit OAuth callback — detectSessionInUrl reads #access_token
+  //    from the URL hash before getSession() is called) ──────────
   try {
     const { data: { session } } = await db.auth.getSession();
     if (session?.user) {
@@ -2583,29 +2777,30 @@ window.startSubscription = function() {
     hideSplash();
   }
 
+  // ── Auth State Listener ─────────────────────────────────────
   db.auth.onAuthStateChange(async (event, session) => {
     console.log('[Auth]', event, session?.user?.email);
 
-    // Handle all events that mean "user is logged in"
     if (
       (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') &&
-      session?.user &&
-      !currentUser
+      session?.user
     ) {
-      document.getElementById('auth-screen').style.display = 'none';
-      await initApp(session.user);
-
-      // Clean the URL hash after successful OAuth token pickup
-      const h = window.location.hash || '';
-      if (h.includes('access_token')) {
-        history.replaceState(null, '', window.location.pathname + window.location.search);
+      if (!currentUser || currentUser.id !== session.user.id) {
+        closeAuthMsg();
+        document.getElementById('auth-screen').style.display = 'none';
+        await initApp(session.user);
+      }
+      // Clean URL hash after OAuth token pickup
+      if ((window.location.hash || '').includes('access_token')) {
+        history.replaceState(null, '', window.location.pathname);
       }
     }
 
     if (event === 'SIGNED_OUT') {
-      currentUser = null;
+      currentUser = null; currentUserId = null; currentUserProfile = null;
       document.getElementById('app').style.display = 'none';
       document.getElementById('auth-screen').style.display = 'flex';
+      switchTab('login');
     }
   });
 
@@ -2996,7 +3191,7 @@ function completeFocusSession() {
   if ('Notification' in window && Notification.permission === 'granted') {
     const n = new Notification('⏰ Focus Session Complete!', {
       body: `Great job! You focused for ${formatFocusTime(secsAdded)}.`,
-      icon: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+      icon: './assets/images/logo.jpeg',
       tag: 'focus-complete',
       requireInteraction: true,
     });
@@ -3559,7 +3754,7 @@ function scheduleStreakReminder() {
       if (Notification.permission === 'granted') {
         new Notification('🔥 Don\'t lose your streak!', {
           body: `You have a ${cs}-day streak! Open PlanTrack before midnight to keep it going.`,
-          icon: 'WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+          icon: 'assets/images/logo.jpeg',
           tag: 'streak-reminder'
         });
       }
@@ -3693,7 +3888,7 @@ async function checkSocialInteractions() {
           if ('Notification' in window && Notification.permission === 'granted') {
             new Notification('New Friend Request!', {
               body: `${senderName} wants to be your friend.`,
-              icon: 'WhatsApp Image 2026-04-07 at 20.53.13.jpeg'
+              icon: 'assets/images/logo.jpeg'
             });
           }
 
@@ -5076,29 +5271,94 @@ function buildMessageRow(msg, isGrouped = false, groupClass = '') {
   return row;
 }
 
+window.sharedAttachmentsCache = window.sharedAttachmentsCache || {};
+
 function buildSharedCard(msg) {
-  const att = msg.attachment || {};
+  let att = msg.attachment || {};
+  if (typeof att === 'string') {
+    try { att = JSON.parse(att); } catch(e) { att = {}; }
+  }
+
+  // Cache attachment by message ID or synthetic key
+  const cacheKey = msg.id || ('att_' + Math.random().toString(36).substring(2, 9));
+  window.sharedAttachmentsCache[cacheKey] = att;
+
+  const type = msg.type || msg.attachment_type || '';
+  const url = msg.attachment_url || att.audio_url || att.url || '';
+
+  // ── Audio / Voice Note ──────────────────────────────────────────
+  if (type === 'audio' || (url && (url.startsWith('data:audio') || url.endsWith('.webm') || url.endsWith('.mp3') || url.endsWith('.ogg')))) {
+    return `<div class="audio-msg-bubble" style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:rgba(255,255,255,0.06);border-radius:12px;margin-top:4px;">
+      <audio controls preload="auto" style="max-width:240px;height:38px;outline:none;">
+        <source src="${url}" type="audio/webm">
+        <source src="${url}" type="audio/ogg">
+        <source src="${url}" type="audio/mpeg">
+        Your browser does not support audio playback.
+      </audio>
+    </div>`;
+  }
+
+  // ── Call Signal (do not render as card) ─────────────────────────
+  if (type === 'call_signal' || type === 'accept_signal' || type === 'decline_signal') {
+    const isSent = msg.sender_id === currentUserId;
+    const callType = att.callType || 'voice';
+    const iconC = callType === 'video' ? 'fa-video' : 'fa-phone';
+    if (type === 'call_signal') {
+      return `<div class="msg-bubble" style="background:rgba(255,255,255,0.05);font-size:0.85rem;color:var(--text3);display:flex;align-items:center;gap:8px;"><i class="fa ${iconC}" style="color:var(--accent)"></i>${isSent ? 'Outgoing' : 'Incoming'} ${callType} call</div>`;
+    }
+    if (type === 'decline_signal') {
+      return `<div class="msg-bubble" style="background:rgba(231,76,60,0.08);font-size:0.85rem;color:#e74c3c;display:flex;align-items:center;gap:8px;"><i class="fa fa-phone-slash"></i> Call declined</div>`;
+    }
+    if (type === 'accept_signal') {
+      return `<div class="msg-bubble" style="background:rgba(46,204,113,0.08);font-size:0.85rem;color:#2ecc71;display:flex;align-items:center;gap:8px;"><i class="fa fa-phone"></i> Call accepted</div>`;
+    }
+  }
+
+  // ── Idea / Business Proposal ────────────────────────────────────
+  if (type === 'idea') {
+    const isSent = msg.sender_id === currentUserId;
+    const idea = att.idea || msg.content || 'Business Proposal';
+    const imgUrl = att.image_url || '';
+    return `<div class="shared-card" style="border-color:rgba(155,89,182,0.4);background:linear-gradient(135deg,rgba(155,89,182,0.08),rgba(52,152,219,0.05));">
+      <div class="shared-card-header">
+        <div class="shared-card-icon" style="background:rgba(155,89,182,0.2);color:#9b59b6;"><i class="fa fa-lightbulb"></i></div>
+        <div>
+          <div class="shared-card-title">💡 ${isSent ? 'Your' : ''} Business Idea / Proposal</div>
+          <div class="shared-card-meta" style="white-space:pre-wrap;max-height:80px;overflow:hidden;">${escapeHtml(idea).substring(0, 150)}${idea.length > 150 ? '...' : ''}</div>
+        </div>
+      </div>
+      ${imgUrl ? `<img src="${imgUrl}" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin:10px 0;" />` : ''}
+      <div class="shared-card-footer">
+        <span class="shared-card-type-tag" style="background:rgba(155,89,182,0.15);color:#9b59b6;">💡 Idea</span>
+        <button class="shared-card-action" onclick="viewSharedIdea('${cacheKey}')" type="button">Read Full Idea →</button>
+      </div>
+    </div>`;
+  }
+
   let iconClass = '', icon = '', title = '', meta = '', typeLabel = '', actionLabel = '', onClickFn = '';
 
-  if (msg.type === 'timetable') {
+  if (type === 'timetable') {
     iconClass = 'timetable'; icon = 'fa-calendar-alt';
-    title = att.name || 'Timetable';
-    meta = att.slots ? `${att.slots} slots` : '';
-    typeLabel = 'Timetable'; actionLabel = 'View';
-    onClickFn = `viewSharedTimetable(${JSON.stringify(att).replace(/"/g, '&quot;')})`;
-  } else if (msg.type === 'file') {
+    title = att.name || att.title || att.tt_type || 'Timetable';
+    meta = att.slots ? `${att.slots} slots` : 'Timetable Schedule';
+    typeLabel = 'Timetable'; actionLabel = 'View & Import';
+    onClickFn = `viewSharedTimetableById('${cacheKey}')`;
+  } else if (type === 'file') {
     iconClass = 'file'; icon = 'fa-file';
-    title = att.name || 'File';
-    meta = att.size || '';
-    typeLabel = 'File'; actionLabel = 'Open';
-    onClickFn = `openSharedFile('${att.url}')`;
-  } else if (msg.type === 'plan') {
+    title = att.name || 'Shared File';
+    meta = att.size || 'File attachment';
+    typeLabel = 'File'; actionLabel = 'Open File';
+    onClickFn = `openSharedFile('${url || att.url}')`;
+  } else if (type === 'plan') {
     iconClass = 'plan'; icon = 'fa-tasks';
     title = att.title || 'Plan';
     const planDuration = att.duration || att.type || '';
-    meta = planDuration ? `${planDuration} plan` : '';
-    typeLabel = 'Plan'; actionLabel = 'View';
-    onClickFn = `viewSharedPlan(${JSON.stringify(att).replace(/"/g, '&quot;')})`;
+    meta = planDuration ? `${planDuration} plan` : 'Activities Plan';
+    typeLabel = 'Plan'; actionLabel = 'View & Save';
+    onClickFn = `viewSharedPlanById('${cacheKey}')`;
+  } else {
+    // Unknown card fallback
+    return `<div class="msg-bubble">${escapeHtml(msg.content || 'Shared item')}</div>`;
   }
 
   return `<div class="shared-card">
@@ -5115,6 +5375,30 @@ function buildSharedCard(msg) {
     </div>
   </div>`;
 }
+
+window.viewSharedPlanById = function(cacheKey) {
+  const att = window.sharedAttachmentsCache[cacheKey] || {};
+  viewSharedPlan(att);
+};
+
+window.viewSharedTimetableById = function(cacheKey) {
+  const att = window.sharedAttachmentsCache[cacheKey] || {};
+  viewSharedTimetable(att);
+};
+
+window.viewSharedIdea = function(cacheKey) {
+  const att = window.sharedAttachmentsCache[cacheKey] || {};
+  const idea = att.idea || 'No content';
+  const imgUrl = att.image_url || '';
+  // Reuse plan-view modal for displaying idea
+  document.getElementById('planv-heading').innerHTML = `<i class="fa fa-lightbulb" style="color:#9b59b6"></i> Business Idea / Proposal`;
+  document.getElementById('planv-body').innerHTML = `
+    <div style="background:rgba(155,89,182,0.07);border-left:3px solid #9b59b6;padding:16px 18px;border-radius:8px;font-size:0.95rem;line-height:1.8;color:var(--text1);white-space:pre-wrap;margin-bottom:20px;">${escapeHtml(idea)}</div>
+    ${imgUrl ? `<img src="${imgUrl}" style="width:100%;max-height:280px;object-fit:contain;border-radius:10px;margin-bottom:16px;">` : ''}
+    <p style="font-size:0.82rem;color:var(--text3);margin-top:10px;">Shared via PlanTrack Nexus Chat</p>
+  `;
+  openModal('modal-plan-view');
+};
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -5270,20 +5554,18 @@ function refreshConvoPreview(friendId, msg) {
 // ── Mark Read ───────────────────────────────────────────────────
 
 async function markMessagesRead(friendId) {
-  if (!currentUserId) return;
+  if (!currentUserId || !friendId) return;
   const now = new Date().toISOString();
   try {
-    await db.from('messages')
-      .update({ status: 'read', read_at: now, delivered_at: now })
+    const { error } = await db.from('messages')
+      .update({ is_read: true, status: 'read', read_at: now })
       .eq('receiver_id', currentUserId)
       .eq('sender_id', friendId)
-      .eq('status', 'sent');
+      .eq('is_read', false);
 
-    await db.from('messages')
-      .update({ status: 'read', read_at: now })
-      .eq('receiver_id', currentUserId)
-      .eq('sender_id', friendId)
-      .eq('status', 'delivered');
+    if (error) {
+      console.warn('[Chat] markMessagesRead DB error:', error.message);
+    }
   } catch (err) {
     console.warn('Failed to mark messages as read:', err);
   }
@@ -5334,6 +5616,12 @@ function subscribeToChatMessages() {
 function handleIncomingMessage(msg) {
   const fromFriend = msg.sender_id;
 
+  // ── Intercept call signals before rendering ──────────────────────
+  if (msg.type === 'call_signal' || msg.type === 'accept_signal' || msg.type === 'decline_signal') {
+    handleCallSignalMessage(msg);
+    return; // Don't add to chat or show badge for call signals
+  }
+
   // If this chat is currently open, render with proper grouping
   if (activeChatFriendId === fromFriend) {
     // Update local cache
@@ -5379,14 +5667,14 @@ function handleIncomingMessage(msg) {
 
     // Play subtle sound notification
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.type = 'sine'; osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-      osc.start(); osc.stop(ctx.currentTime + 0.3);
+      const ctx2 = new (window.AudioContext || window.webkitAudioContext)();
+      const osc2 = ctx2.createOscillator();
+      const gain2 = ctx2.createGain();
+      osc2.connect(gain2); gain2.connect(ctx2.destination);
+      osc2.type = 'sine'; osc2.frequency.value = 880;
+      gain2.gain.setValueAtTime(0.2, ctx2.currentTime);
+      gain2.gain.exponentialRampToValueAtTime(0.001, ctx2.currentTime + 0.3);
+      osc2.start(); osc2.stop(ctx2.currentTime + 0.3);
     } catch(e) {}
 
     // Update total badge
@@ -5415,6 +5703,12 @@ function handleIncomingMessage(msg) {
 
 async function openSharePicker(type) {
   if (!activeChatFriendId) return;
+
+  // Special case: idea sharing — open compose popup
+  if (type === 'idea') {
+    openIdeaComposeModal();
+    return;
+  }
 
   if (activeSharePickerType === type) {
     closeShareBar();
@@ -5447,11 +5741,11 @@ async function openSharePicker(type) {
       });
 
     } else if (type === 'file') {
-      if (title) title.textContent = '📁 Share a File:';
+      if (title) title.textContent = '📁 Share a File / Image:';
       const { data: files } = await db.from('files').select('*').eq('user_id', currentUserId);
       data = files || [];
       items.innerHTML = data.length === 0
-        ? '<div style="color:var(--text3);font-size:.85rem;padding:8px;">No files uploaded yet.</div>'
+        ? '<div style="color:var(--text3);font-size:.85rem;padding:8px;">No files uploaded yet. Use File Manager to upload first.</div>'
         : '';
       data.forEach(file => {
         const sizeStr = file.size ? formatBytes(file.size) : '';
@@ -5480,6 +5774,50 @@ async function openSharePicker(type) {
     items.innerHTML = '<div style="color:var(--red);font-size:.85rem;padding:8px;">Error loading items.</div>';
   }
 }
+
+// ── Idea / Business Proposal Compose ─────────────────────────────
+
+function openIdeaComposeModal() {
+  closeShareBar();
+  openModal('modal-idea-compose');
+}
+
+window.sendIdeaProposal = async function() {
+  const text = (document.getElementById('idea-compose-text')?.value || '').trim();
+  const imgFile = document.getElementById('idea-image-input')?.files?.[0];
+  if (!text && !imgFile) { toast('Please type your idea or attach an image', 'error'); return; }
+  if (!activeChatFriendId) { toast('Select a chat first', 'error'); return; }
+
+  const btn = document.getElementById('idea-send-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Sending...'; }
+
+  let image_url = '';
+  if (imgFile) {
+    try {
+      const ext = imgFile.name.split('.').pop();
+      const path = `ideas/${currentUserId}/${Date.now()}.${ext}`;
+      const { data: upData, error: upErr } = await db.storage.from('uploads').upload(path, imgFile, { upsert: true });
+      if (!upErr && upData) {
+        const { data: urlData } = db.storage.from('uploads').getPublicUrl(path);
+        image_url = urlData?.publicUrl || '';
+      }
+    } catch(e) { console.warn('Idea image upload failed:', e); }
+  }
+
+  const attachment = { idea: text, image_url };
+  await sendRawMessage('idea', text.substring(0, 80) || '💡 Idea Proposal', attachment);
+
+  // Reset form
+  const textarea = document.getElementById('idea-compose-text');
+  const imgInput = document.getElementById('idea-image-input');
+  if (textarea) textarea.value = '';
+  if (imgInput) imgInput.value = '';
+  const previewEl = document.getElementById('idea-image-preview');
+  if (previewEl) previewEl.innerHTML = '';
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-paper-plane"></i> Send Proposal'; }
+  closeModal('modal-idea-compose');
+  toast('💡 Idea / Proposal sent!', 'success');
+};
 
 function createShareBarItem(icon, type, name, meta, onClick) {
   const el = document.createElement('div');
@@ -5527,9 +5865,29 @@ function viewSharedTimetable(att) {
     <table class="tt-table">
       <thead><tr>${(tt.columns || []).map(c=>`<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
       <tbody>${(tt.rows||[]).map(row=>`<tr>${(row || []).map(c=>`<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody>
-    </table></div>`;
+    </table></div>
+    <button class="btn-save" onclick="importSharedTimetable(${JSON.stringify(tt).replace(/"/g, '&quot;')})" type="button" style="margin-top:16px;width:100%;justify-content:center"><i class="fa fa-plus"></i> Import to My Timetables</button>`;
   openModal('modal-tt-view');
 }
+
+window.importSharedTimetable = async function(tt) {
+  if (!currentUserId || !tt) return;
+  const payload = {
+    user_id: currentUserId,
+    title: (tt.tt_type || tt.name || 'Timetable') + ' (Imported)',
+    type: tt.type || 'General',
+    columns: tt.columns || ["Day","Subject","Time","Venue"],
+    rows: tt.rows || []
+  };
+  const { error } = await db.from('timetables').insert(payload);
+  if (error) { toast('Error importing timetable: ' + error.message, 'error'); }
+  else {
+    toast('📅 Timetable imported into your account!', 'success');
+    closeModal('modal-tt-view');
+    if (window.loadTimetables) loadTimetables();
+    showSection('timetable');
+  }
+};
 
 function openSharedFile(url) {
   if (!url) { toast('File URL unavailable', 'error'); return; }
@@ -5559,7 +5917,7 @@ function viewSharedPlan(att) {
     <div style="max-height:300px;overflow-y:auto;margin-bottom:20px;padding-right:5px">
       ${activities.map((a, i) => `
         <div class="activity-row" style="padding:10px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-          <div class="activity-text" style="color:var(--text1)">${escapeHtml(a.text)}</div>
+          <div class="activity-text" style="color:var(--text1)">${escapeHtml(typeof a === 'string' ? a : a.text)}</div>
           <div style="font-size:.85rem;color:${a.status === 'done' ? 'var(--green)' : 'var(--text3)'}">
             ${a.status === 'done' ? '<i class="fa fa-check-circle"></i> Completed' : '<i class="fa fa-circle"></i> Pending'}
           </div>
@@ -5567,9 +5925,325 @@ function viewSharedPlan(att) {
       `)
       .join('')}
     </div>
+    <button class="btn-save" onclick="importSharedPlan(${JSON.stringify(plan).replace(/"/g, '&quot;')})" type="button" style="margin-top:10px;width:100%;justify-content:center"><i class="fa fa-plus"></i> Import to My Plans</button>
   `;
   openModal('modal-plan-view');
 }
+
+window.importSharedPlan = async function(plan) {
+  if (!currentUserId || !plan) return;
+  const payload = {
+    user_id: currentUserId,
+    title: (plan.title || 'Plan') + ' (Imported)',
+    duration: plan.duration || 'daily',
+    start_date: today(),
+    end_date: today(),
+    activities: plan.activities || []
+  };
+  const { error } = await db.from('plans').insert(payload);
+  if (error) { toast('Error importing plan: ' + error.message, 'error'); }
+  else {
+    toast('✅ Plan imported into your account!', 'success');
+    closeModal('modal-plan-view');
+    if (window.loadPlans) loadPlans();
+    showSection('plans');
+  }
+};
+
+// ── Voice Note Recording Logic ────────────────────────────────────
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecordingVoice = false;
+
+window.sendChatMessage = async function() {
+  const input = document.getElementById('chat-input');
+  if (!input || !activeChatFriendId) return;
+  const text = input.value.trim();
+  if (text) {
+    input.value = '';
+    window.handleChatInput();
+    await sendRawMessage('text', text, null);
+  } else {
+    toggleVoiceNoteRecording();
+  }
+};
+
+window.toggleVoiceNoteRecording = async function() {
+  if (!isRecordingVoice) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Audio = reader.result;
+          await sendRawMessage('audio', null, { audio_url: base64Audio });
+          toast('🎤 Voice message sent!', 'success');
+        };
+        stream.getTracks().forEach(track => track.stop());
+      };
+      mediaRecorder.start();
+      isRecordingVoice = true;
+      toast('🎙️ Recording voice note... Click mic again to stop & send.', 'info');
+      const micBtn = document.getElementById('chat-send-btn');
+      if (micBtn) micBtn.style.background = '#e74c3c';
+    } catch(err) {
+      toast('Microphone access denied or unsupported.', 'error');
+    }
+  } else {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    isRecordingVoice = false;
+    const micBtn = document.getElementById('chat-send-btn');
+    if (micBtn) micBtn.style.background = 'linear-gradient(135deg, rgba(240,192,64,0.7), rgba(212,149,15,0.7))';
+  }
+};
+
+// ── Interactive Call Screen Logic ─────────────────────────────────
+let activeCallTimer = null;
+let activeCallSeconds = 0;
+let isCallMuted = false;
+let isCallVideoOff = false;
+let activeCallMediaStream = null;
+let activeIncomingCallData = null;
+let callRingtoneCtx = null;
+let callRingtoneInterval = null;
+
+function playRingtone() {
+  stopRingtone();
+  try {
+    callRingtoneCtx = new (window.AudioContext || window.webkitAudioContext)();
+    callRingtoneInterval = setInterval(() => {
+      if (!callRingtoneCtx) return;
+      const osc = callRingtoneCtx.createOscillator();
+      const gain = callRingtoneCtx.createGain();
+      osc.connect(gain); gain.connect(callRingtoneCtx.destination);
+      osc.type = 'sine'; osc.frequency.value = 780;
+      gain.gain.setValueAtTime(0.3, callRingtoneCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, callRingtoneCtx.currentTime + 0.4);
+      osc.start(); osc.stop(callRingtoneCtx.currentTime + 0.4);
+    }, 900);
+  } catch(e) {}
+}
+
+function stopRingtone() {
+  if (callRingtoneInterval) { clearInterval(callRingtoneInterval); callRingtoneInterval = null; }
+  if (callRingtoneCtx) { try { callRingtoneCtx.close(); } catch(e) {} callRingtoneCtx = null; }
+}
+
+// Handle incoming call_signal messages from the database real-time stream
+function handleCallSignalMessage(msg) {
+  if (!msg || msg.receiver_id !== currentUserId) return;
+
+  const type = msg.type;
+  let att = msg.attachment || {};
+  if (typeof att === 'string') { try { att = JSON.parse(att); } catch(e) { att = {}; } }
+
+  if (type === 'call_signal') {
+    // Incoming ringing
+    activeIncomingCallData = { callType: att.callType || 'voice', callerName: att.callerName || 'Friend', callerUserId: msg.sender_id, msgId: msg.id };
+    const nameEl = document.getElementById('inc-call-user-name');
+    const avatarEl = document.getElementById('inc-call-avatar');
+    const typeEl = document.getElementById('inc-call-type-text');
+    if (nameEl) nameEl.textContent = att.callerName || 'Friend';
+    if (avatarEl) { avatarEl.textContent = (att.callerName || 'U').charAt(0).toUpperCase(); }
+    if (typeEl) typeEl.innerHTML = `<i class="fa fa-phone-volume fa-spin"></i> Incoming ${att.callType === 'video' ? 'Video' : 'Voice'} Call...`;
+    playRingtone();
+    openModal('modal-incoming-call');
+  } else if (type === 'accept_signal') {
+    // Other user accepted our call — start connected timer
+    stopRingtone();
+    const statusEl = document.getElementById('call-status-text');
+    if (statusEl) {
+      statusEl.style.color = '#2ecc71';
+      activeCallSeconds = 0;
+      if (activeCallTimer) clearInterval(activeCallTimer);
+      activeCallTimer = setInterval(() => {
+        activeCallSeconds++;
+        const mins = String(Math.floor(activeCallSeconds / 60)).padStart(2, '0');
+        const secs = String(activeCallSeconds % 60).padStart(2, '0');
+        statusEl.innerHTML = `<i class="fa fa-circle" style="color:#2ecc71;font-size:0.6rem"></i> Connected • ${mins}:${secs}`;
+      }, 1000);
+    }
+    toast('Call connected! 🎉', 'success');
+  } else if (type === 'decline_signal') {
+    // Other user declined
+    stopRingtone();
+    endCall();
+    toast('Call was declined', 'info');
+  }
+}
+
+window.acceptIncomingCall = async function() {
+  if (!activeIncomingCallData) return;
+  stopRingtone();
+  const callType = activeIncomingCallData.callType || 'voice';
+  const callerUserId = activeIncomingCallData.callerUserId;
+  closeModal('modal-incoming-call');
+
+  // Signal the caller that we accepted
+  if (callerUserId) {
+    const prevFriend = activeChatFriendId;
+    activeChatFriendId = callerUserId; // temporarily set for sendRawMessage
+    await sendRawMessage('accept_signal', 'Call accepted', { callType });
+    activeChatFriendId = prevFriend;
+  }
+
+  activeIncomingCallData = null;
+  // Open the call screen for the receiver
+  const callerName = document.getElementById('inc-call-user-name')?.textContent || 'Friend';
+  const userEl = document.getElementById('call-user-name');
+  const avatarEl = document.getElementById('call-avatar');
+  const statusEl = document.getElementById('call-status-text');
+  if (userEl) userEl.textContent = callerName;
+  if (avatarEl) avatarEl.textContent = (callerName).charAt(0).toUpperCase();
+  if (statusEl) { statusEl.style.color = '#2ecc71'; statusEl.innerHTML = '<i class="fa fa-circle" style="color:#2ecc71;font-size:0.6rem"></i> Connected'; }
+  openModal('modal-active-call');
+
+  if (callType === 'video') {
+    try {
+      const videoEl = document.getElementById('local-video-stream');
+      const avatarWrap = document.getElementById('call-avatar-wrap');
+      activeCallMediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      if (videoEl) { videoEl.srcObject = activeCallMediaStream; videoEl.style.display = 'block'; }
+      if (avatarWrap) avatarWrap.style.display = 'none';
+    } catch(e) { toast('Camera unavailable', 'info'); }
+  }
+
+  // Start timer
+  activeCallSeconds = 0;
+  if (activeCallTimer) clearInterval(activeCallTimer);
+  activeCallTimer = setInterval(() => {
+    activeCallSeconds++;
+    const mins = String(Math.floor(activeCallSeconds / 60)).padStart(2, '0');
+    const secs = String(activeCallSeconds % 60).padStart(2, '0');
+    const st = document.getElementById('call-status-text');
+    if (st) st.innerHTML = `<i class="fa fa-circle" style="color:#2ecc71;font-size:0.6rem"></i> Connected • ${mins}:${secs}`;
+  }, 1000);
+};
+
+window.declineIncomingCall = async function() {
+  stopRingtone();
+  const callerUserId = activeIncomingCallData?.callerUserId;
+  closeModal('modal-incoming-call');
+  if (callerUserId) {
+    const prevFriend = activeChatFriendId;
+    activeChatFriendId = callerUserId;
+    await sendRawMessage('decline_signal', 'Call declined', {});
+    activeChatFriendId = prevFriend;
+  }
+  activeIncomingCallData = null;
+  toast('Call declined', 'info');
+};
+
+window.startCall = async function(type) {
+  if (!activeChatFriendId) { toast('Select a friend to call', 'error'); return; }
+  const name = document.getElementById('chat-header-name')?.textContent || 'Friend';
+  const avatar = document.getElementById('chat-header-avatar')?.innerHTML || 'U';
+  const rawStatus = (document.getElementById('chat-header-status')?.textContent || '').toLowerCase();
+
+  const isUserOnline = rawStatus.includes('online') && !rawStatus.includes('offline');
+
+  const userEl = document.getElementById('call-user-name');
+  const avatarEl = document.getElementById('call-avatar');
+  const statusEl = document.getElementById('call-status-text');
+  const videoEl = document.getElementById('local-video-stream');
+  const avatarWrap = document.getElementById('call-avatar-wrap');
+
+  if (userEl) userEl.textContent = name;
+  if (avatarEl) avatarEl.innerHTML = avatar;
+  if (statusEl) statusEl.innerHTML = `<i class="fa fa-phone-volume fa-spin"></i> Calling ${type === 'video' ? 'Video' : 'Voice'}...`;
+
+  openModal('modal-active-call');
+
+  // Camera & mic access for video calls (mirrored naturally via CSS scaleX(-1))
+  if (type === 'video' && videoEl) {
+    try {
+      activeCallMediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true });
+      videoEl.srcObject = activeCallMediaStream;
+      videoEl.style.display = 'block';
+      if (avatarWrap) avatarWrap.style.display = 'none';
+    } catch (e) {
+      console.warn('Camera access denied:', e);
+      toast('Camera unavailable or permission denied.', 'info');
+      if (videoEl) videoEl.style.display = 'none';
+      if (avatarWrap) avatarWrap.style.display = 'block';
+    }
+  } else {
+    if (videoEl) videoEl.style.display = 'none';
+    if (avatarWrap) avatarWrap.style.display = 'block';
+  }
+
+  if (!isUserOnline) {
+    // Target is offline — send missed call and close
+    setTimeout(() => {
+      if (statusEl) { statusEl.style.color = '#e74c3c'; statusEl.innerHTML = `<i class="fa fa-phone-slash"></i> ${escapeHtml(name)} is offline`; }
+      setTimeout(async () => {
+        endCall();
+        toast(`${name} is offline. Missed call notification sent.`, 'info');
+        await sendRawMessage('text', `📵 Missed ${type === 'video' ? 'video' : 'voice'} call from ${currentUserProfile?.username || 'you'}`, null);
+      }, 2500);
+    }, 3000);
+    return;
+  }
+
+  // ── Send call_signal to receiver via Supabase ──────────────────
+  await sendRawMessage('call_signal', `📞 Incoming ${type} call`, {
+    callType: type,
+    callerName: currentUserProfile?.username || 'Friend',
+    callerUserId: currentUserId
+  });
+
+  // Show ringing status — wait for accept_signal or decline_signal in real-time
+  if (statusEl) statusEl.innerHTML = `<i class="fa fa-phone-volume fa-spin"></i> Ringing ${escapeHtml(name)}...`;
+
+  // Auto-cancel if no answer in 30 seconds
+  setTimeout(() => {
+    const st = document.getElementById('call-status-text');
+    if (st && (st.innerHTML.includes('Ringing') || st.innerHTML.includes('Calling'))) {
+      endCall();
+      toast(`${name} did not answer`, 'info');
+    }
+  }, 30000);
+};
+
+window.endCall = function() {
+  stopRingtone();
+  if (activeCallTimer) clearInterval(activeCallTimer);
+  if (activeCallMediaStream) {
+    activeCallMediaStream.getTracks().forEach(track => track.stop());
+    activeCallMediaStream = null;
+  }
+  const videoEl = document.getElementById('local-video-stream');
+  if (videoEl) { videoEl.srcObject = null; videoEl.style.display = 'none'; }
+  closeModal('modal-active-call');
+  toast('Call ended', 'info');
+};
+
+window.toggleCallMute = function() {
+  isCallMuted = !isCallMuted;
+  const btn = document.getElementById('call-mute-btn');
+  if (btn) {
+    btn.style.background = isCallMuted ? '#e74c3c' : 'rgba(255,255,255,0.1)';
+    btn.innerHTML = `<i class="fa ${isCallMuted ? 'fa-microphone-slash' : 'fa-microphone'}"></i>`;
+  }
+  toast(isCallMuted ? 'Microphone muted' : 'Microphone unmuted', 'info');
+};
+
+window.toggleCallVideo = function() {
+  isCallVideoOff = !isCallVideoOff;
+  const btn = document.getElementById('call-video-btn');
+  if (btn) {
+    btn.style.background = isCallVideoOff ? '#e74c3c' : 'rgba(255,255,255,0.1)';
+    btn.innerHTML = `<i class="fa ${isCallVideoOff ? 'fa-video-slash' : 'fa-video'}"></i>`;
+  }
+  toast(isCallVideoOff ? 'Camera turned off' : 'Camera turned on', 'info');
+};
 
 // ── Reactions ───────────────────────────────────────────────────
 
@@ -5817,3 +6491,395 @@ window.deleteMessage = async function(msgId) {
     toast('Could not delete message', 'error');
   }
 };
+
+// ═══════════════════════════════════════════════════════════════
+//  PLANTRACK PRO & 7-DAY FREE TRIAL SYSTEM
+// ═══════════════════════════════════════════════════════════════
+let selectedProTier = 'yearly';
+
+window.checkProTrialStatus = function() {
+  if (!currentUserProfile) return { isTrial: true, daysLeft: 7, isPro: true };
+  
+  const created = currentUserProfile.joined_at ? new Date(currentUserProfile.joined_at) : new Date();
+  const now = new Date();
+  const diffDays = Math.floor((now - created) / (1000 * 60 * 60 * 24));
+  const daysLeft = Math.max(0, 7 - diffDays);
+  
+  const isTrialActive = diffDays <= 7;
+  const isProSubscriber = currentUserProfile.is_pro || false;
+  const isPro = isTrialActive || isProSubscriber;
+
+  // Update UI topbar badge
+  const textEl = document.getElementById('pro-trial-text');
+  const chipEl = document.getElementById('pro-trial-chip');
+  if (textEl && chipEl) {
+    if (isProSubscriber) {
+      textEl.textContent = 'PRO Active';
+      chipEl.style.background = 'linear-gradient(135deg,rgba(46,204,113,0.2),rgba(39,174,96,0.3))';
+      chipEl.style.borderColor = 'rgba(46,204,113,0.5)';
+      chipEl.style.color = '#2ecc71';
+    } else if (isTrialActive) {
+      textEl.textContent = `${daysLeft}d Trial Left`;
+    } else {
+      textEl.textContent = 'Upgrade $0.50/mo';
+      chipEl.style.background = 'linear-gradient(135deg,rgba(231,76,60,0.2),rgba(192,57,43,0.3))';
+      chipEl.style.borderColor = 'rgba(231,76,60,0.5)';
+      chipEl.style.color = '#e74c3c';
+    }
+  }
+
+  return { isTrial: isTrialActive, daysLeft, isProSubscriber, isPro };
+};
+
+window.openProModal = function() {
+  const status = checkProTrialStatus();
+  openModal('modal-pro-pricing');
+};
+
+window.selectPricingTier = function(tier) {
+  selectedProTier = tier;
+  document.querySelectorAll('.pricing-card').forEach(el => el.classList.remove('active-plan'));
+  const target = event.currentTarget;
+  if (target) target.classList.add('active-plan');
+};
+
+window.activateProSubscription = async function() {
+  if (!currentUserId) { toast('Please sign in to subscribe.', 'error'); return; }
+  const amount = selectedProTier === 'yearly' ? '$5.00/year' : '$0.50/month';
+  showUploadProgress(true, 50, 'Processing subscription...');
+  
+  // Update Supabase profile is_pro flag
+  const { error } = await db.from('profiles').update({ is_pro: true }).eq('id', currentUserId);
+  showUploadProgress(false);
+  
+  if (error) {
+    toast('Subscription failed: ' + error.message, 'error');
+  } else {
+    if (currentUserProfile) currentUserProfile.is_pro = true;
+    checkProTrialStatus();
+    closeModal('modal-pro-pricing');
+    toast(`🎉 PlanTrack PRO activated (${amount})! Full AI access unlocked.`, 'success');
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  CONTEXT-AWARE ACTIVITY AI CO-PILOT
+// ═══════════════════════════════════════════════════════════════
+window.getActivityContext = function() {
+  const plans = window.allPlans || [];
+  const focusMins = Math.round((window.focusTotalSecs || 0) / 60);
+  const sessions = window.focusSessionsToday || 0;
+  const activePlans = plans.filter(p => !p.completed);
+  let pendingTasks = 0;
+  plans.forEach(p => { if (p.activities) pendingTasks += p.activities.filter(a => a.status !== 'done').length; });
+  let totalCompleted = 0;
+  plans.forEach(p => { if (p.activities) totalCompleted += p.activities.filter(a => a.status === 'done').length; });
+
+  return {
+    sessionsToday: sessions,
+    focusMinsToday: focusMins,
+    totalPlansCount: plans.length,
+    activePlansCount: activePlans.length,
+    pendingTasksCount: pendingTasks,
+    totalCompletedTasks: totalCompleted,
+    friendsCount: window._userFriendsCount || 0,
+    timetablesCount: window._userTimetablesCount || 0,
+    filesCount: window._userFilesCount || 0,
+    joinDate: currentUserProfile?.created_at ? new Date(currentUserProfile.created_at).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' }) : 'Unknown'
+  };
+};
+
+// Fetch extra user stats in background and cache them
+window.prefetchUserStats = async function() {
+  if (!currentUserId) return;
+  try {
+    const [{ count: fc }, { count: tc }, { count: filc }] = await Promise.all([
+      db.from('friendships').select('id', { count: 'exact', head: true })
+        .or(`user_id.eq.${currentUserId},friend_id.eq.${currentUserId}`).eq('status', 'accepted'),
+      db.from('timetables').select('id', { count: 'exact', head: true }).eq('user_id', currentUserId),
+      db.from('files').select('id', { count: 'exact', head: true }).eq('user_id', currentUserId)
+    ]);
+    window._userFriendsCount = fc || 0;
+    window._userTimetablesCount = tc || 0;
+    window._userFilesCount = filc || 0;
+  } catch(e) { console.warn('[AI] prefetchUserStats error:', e); }
+};
+
+window.openAICoPilot = function() {
+  const status = checkProTrialStatus();
+  if (!status.isPro) {
+    openProModal();
+    toast('Your 7-Day Free Trial has ended. Upgrade for $0.50/mo to continue using AI Co-Pilot!', 'info');
+    return;
+  }
+
+  // Pre-fetch user stats so AI has full context
+  window.prefetchUserStats && window.prefetchUserStats();
+
+  const ctx = getActivityContext();
+  const username = currentUserProfile?.username || 'User';
+  const contextEl = document.getElementById('ai-context-text');
+  if (contextEl) {
+    contextEl.innerHTML = `Hello <strong>${username}</strong>! You have <strong>${ctx.sessionsToday} focus session(s)</strong> (${ctx.focusMinsToday} mins) today, <strong>${ctx.activePlansCount} active plan(s)</strong>, <strong>${ctx.pendingTasksCount} pending task(s)</strong>, and <strong>${ctx.friendsCount} friend(s)</strong> on PlanTrack.`;
+  }
+  openModal('modal-ai-copilot');
+};
+
+window.askAICoPilot = function(actionType) {
+  const log = document.getElementById('ai-chat-log');
+  if (!log) return;
+
+  const ctx = getActivityContext();
+  const loadingId = 'ai-load-' + Date.now();
+  const loadingRow = document.createElement('div');
+  loadingRow.id = loadingId;
+  loadingRow.style.cssText = 'display:flex;gap:10px;align-items:flex-start';
+  loadingRow.innerHTML = `
+    <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#9b59b6,#3498db);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1rem;flex-shrink:0"><i class="fa fa-robot"></i></div>
+    <div style="background:rgba(255,255,255,0.06);padding:12px 16px;border-radius:12px;font-size:0.9rem;color:var(--text3)">
+      <i class="fa fa-spinner fa-spin"></i> AI Co-Pilot is analyzing your activities...
+    </div>
+  `;
+  log.appendChild(loadingRow);
+  log.scrollTop = log.scrollHeight;
+
+  setTimeout(() => {
+    loadingRow.remove();
+    let contentHtml = '';
+
+    if (actionType === 'generate_timetable') {
+      contentHtml = `
+        <div style="background:rgba(255,215,0,0.08);border-left:3px solid #ffd700;padding:10px 14px;border-radius:6px;margin-bottom:10px">
+          <strong>🤖 Universal Work & Focus Timetable</strong>
+        </div>
+        Based on your current ${ctx.pendingTasksCount} pending tasks, here is an optimized timetable schedule:
+        <ul style="margin-left:18px;margin-top:8px;margin-bottom:12px">
+          <li><strong>08:30 AM - 10:00 AM:</strong> Deep Work Block #1 (Highest Priority)</li>
+          <li><strong>10:00 AM - 10:15 AM:</strong> Rest & Binaural Beats Soundscape</li>
+          <li><strong>10:15 AM - 12:00 PM:</strong> Communications & Team Sync</li>
+          <li><strong>01:30 PM - 03:00 PM:</strong> Deep Work Block #2</li>
+          <li><strong>04:00 PM - 04:30 PM:</strong> Daily Review & Task Check-off</li>
+        </ul>
+        <button class="btn-save" onclick="applyAIGeneratedTimetable()" type="button" style="padding:6px 14px;font-size:0.82rem"><i class="fa fa-check"></i> Apply This Timetable to My Account</button>
+      `;
+    } else if (actionType === 'breakdown_tasks') {
+      contentHtml = `
+        <div style="background:rgba(46,204,113,0.08);border-left:3px solid #2ecc71;padding:10px 14px;border-radius:6px;margin-bottom:10px">
+          <strong>🤖 Smart Task Decomposition</strong>
+        </div>
+        Here is a recommended 3-step action breakdown for today:
+        <ol style="margin-left:18px;margin-top:8px;margin-bottom:12px">
+          <li>Focus 25 mins on your top priority deliverable.</li>
+          <li>Check off 2 pending activities in your Daily Plan.</li>
+          <li>Share progress update in Nexus Chat with your team/friends.</li>
+        </ol>
+        <button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="padding:6px 14px;font-size:0.82rem"><i class="fa fa-plus"></i> Add Tasks to Daily Plan</button>
+      `;
+    } else if (actionType === 'reschedule_gaps') {
+      contentHtml = `
+        <div style="background:rgba(52,152,219,0.08);border-left:3px solid #3498db;padding:10px 14px;border-radius:6px;margin-bottom:10px">
+          <strong>🤖 Smart Activity Rescheduler</strong>
+        </div>
+        You have <strong>${ctx.pendingTasksCount} unfinished task(s)</strong>. AI can automatically re-balance them into tomorrow's free morning slots.
+        <br/><br/>
+        <button class="btn-save" onclick="toast('Activities rescheduled for tomorrow 9:00 AM!','success')" type="button" style="padding:6px 14px;font-size:0.82rem"><i class="fa fa-calendar-check"></i> Reschedule Unfinished Tasks Now</button>
+      `;
+    } else if (actionType === 'focus_advice') {
+      contentHtml = `
+        <div style="background:rgba(155,89,182,0.08);border-left:3px solid #9b59b6;padding:10px 14px;border-radius:6px;margin-bottom:10px">
+          <strong>🤖 Personal Focus & Health Advice</strong>
+        </div>
+        You've completed <strong>${ctx.focusMinsToday} minutes</strong> of focus today. To maximize performance:
+        <ul style="margin-left:18px;margin-top:8px;margin-bottom:8px">
+          <li>Try 45-minute focus intervals followed by 10 minutes of rest.</li>
+          <li>Listen to Alpha Wave Binaural Beats during deep work.</li>
+          <li>Keep your daily streak active by logging at least 1 session every day!</li>
+        </ul>
+      `;
+    }
+
+    const aiRow = document.createElement('div');
+    aiRow.style.cssText = 'display:flex;gap:10px;align-items:flex-start';
+    aiRow.innerHTML = `
+      <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#9b59b6,#3498db);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1rem;flex-shrink:0"><i class="fa fa-robot"></i></div>
+      <div style="background:rgba(255,255,255,0.06);padding:12px 16px;border-radius:12px;max-width:85%;font-size:0.92rem;line-height:1.6;color:var(--text1)">
+        ${contentHtml}
+      </div>
+    `;
+    log.appendChild(aiRow);
+    log.scrollTop = log.scrollHeight;
+  }, 500);
+};
+
+window.submitCustomAIPrompt = function() {
+  const input = document.getElementById('ai-prompt-input');
+  if (!input || !input.value.trim()) return;
+  const prompt = input.value.trim();
+  input.value = '';
+
+  const log = document.getElementById('ai-chat-log');
+  if (!log) return;
+
+  // Render User Message
+  const userRow = document.createElement('div');
+  userRow.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;align-items:flex-start';
+  userRow.innerHTML = `
+    <div style="background:linear-gradient(135deg,rgba(240,192,64,0.2),rgba(212,149,15,0.3));border:1px solid rgba(240,192,64,0.4);padding:12px 16px;border-radius:12px;max-width:80%;font-size:0.92rem;line-height:1.6;color:var(--text1)">
+      ${escapeHtml(prompt)}
+    </div>
+    <div style="width:36px;height:36px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#000;font-weight:700;font-size:0.9rem;flex-shrink:0">You</div>
+  `;
+  log.appendChild(userRow);
+  log.scrollTop = log.scrollHeight;
+
+  // Add Typing Indicator
+  const loadingRow = document.createElement('div');
+  loadingRow.style.cssText = 'display:flex;gap:10px;align-items:flex-start';
+  loadingRow.innerHTML = `
+    <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#9b59b6,#3498db);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1rem;flex-shrink:0"><i class="fa fa-robot"></i></div>
+    <div style="background:rgba(255,255,255,0.06);padding:12px 16px;border-radius:12px;font-size:0.9rem;color:var(--text3)">
+      <i class="fa fa-spinner fa-spin"></i> AI Co-Pilot is thinking...
+    </div>
+  `;
+  log.appendChild(loadingRow);
+  log.scrollTop = log.scrollHeight;
+
+  setTimeout(() => {
+    loadingRow.remove();
+    const ctx = getActivityContext();
+    const lower = prompt.toLowerCase();
+    let reply = '';
+    let actionBtnHtml = '';
+    const username = (currentUserProfile?.username || 'User').trim();
+    const upperUser = username.toUpperCase();
+
+    // 1. GREETING HANDLERS WITH USERNAME
+    if (lower.includes('good morning') || lower === 'morning') {
+      reply = `GOOD MORNING ${upperUser}! ☀️ How can I help you achieve your goals today?`;
+      actionBtnHtml = `<button class="btn-save" onclick="askAICoPilot('generate_timetable')" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-calendar"></i> Generate Today's Timetable</button>`;
+    } else if (lower.includes('good afternoon') || lower === 'afternoon') {
+      reply = `GOOD AFTERNOON ${upperUser}! 🌤️ Ready for your afternoon focus sprint?`;
+      actionBtnHtml = `<button class="btn-save" onclick="askAICoPilot('focus_advice')" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-stopwatch"></i> Start Focus Sprint</button>`;
+    } else if (lower.includes('good evening') || lower === 'evening') {
+      reply = `GOOD EVENING ${upperUser}! 🌙 How did your activities go today?`;
+      actionBtnHtml = `<button class="btn-save" onclick="askAICoPilot('reschedule_gaps')" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-calendar-check"></i> Review & Reschedule Gaps</button>`;
+    } else if (lower.includes('hello') || lower.includes('hi') || lower.includes('hey') || lower === 'sup' || lower === 'greetings') {
+      reply = `HELLO ${upperUser}! 👋 I am your PlanTrack AI Co-Pilot.<br/><br/>You have completed <strong>${ctx.sessionsToday} focus session(s)</strong> (${ctx.focusMinsToday} mins) today. How can I assist you?`;
+      actionBtnHtml = `<button class="btn-save" onclick="askAICoPilot('breakdown_tasks')" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-plus"></i> Breakdown Today's Tasks</button>`;
+    }
+    // 2. USER STATS & TOTAL ACTIVITY SUMMARY
+    else if (lower.includes('what have i done') || lower.includes('my stats') || lower.includes('my progress') || lower.includes('my activity') || lower.includes('summary') || lower.includes('how am i doing')) {
+      reply = `📊 <strong>Complete PlanTrack Profile for ${username}:</strong><br/><br/>
+      👤 <strong>Username:</strong> ${username}<br/>
+      📅 <strong>Member Since:</strong> ${ctx.joinDate}<br/>
+      👥 <strong>Friends:</strong> ${ctx.friendsCount} Friend(s) on PlanTrack<br/>
+      ⏱️ <strong>Focus Today:</strong> ${ctx.sessionsToday} Session(s) — ${ctx.focusMinsToday} Mins<br/>
+      📋 <strong>Active Plans:</strong> ${ctx.activePlansCount} / ${ctx.totalPlansCount} Total Plans<br/>
+      ✅ <strong>Completed Tasks (All Time):</strong> ${ctx.totalCompletedTasks}<br/>
+      🔄 <strong>Pending Tasks:</strong> ${ctx.pendingTasksCount} Remaining<br/>
+      📅 <strong>Timetables Created:</strong> ${ctx.timetablesCount}<br/>
+      📁 <strong>Files Uploaded:</strong> ${ctx.filesCount}<br/><br/>
+      <em>Keep up the great work, ${username}! You're making excellent progress.</em>`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-plus"></i> Add More Tasks to My Plan</button>`;
+    }
+    // 3. FINANCIAL / BUSINESS / MONEY INTENT
+    else if (lower.includes('money') || lower.includes('earn') || lower.includes('business') || lower.includes('revenue') || lower.includes('income') || lower.includes('hustle')) {
+      reply = `Building sustainable income requires focusing on high-value skills and execution, ${username}:<br/><br/>
+      1️⃣ <strong>High-Ticket Freelancing:</strong> Master a specific skill (web development, AI workflows, copywriting, UI design) and offer service retainers to business owners.<br/>
+      2️⃣ <strong>Digital Products & Tools:</strong> Build digital assets (notion templates, niche web tools, course guides) that earn recurring revenue.<br/>
+      3️⃣ <strong>Agency / B2B Consulting:</strong> Help local or online businesses automate operations and solve bottlenecks.<br/><br/>
+      <em>Would you like me to build a 30-day execution plan for your business goals?</em>`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-rocket"></i> Create 30-Day Monetization Plan</button>`;
+    }
+    // 4. DAY PLANNING / SCHEDULING INTENT
+    else if (lower.includes('plan my day') || lower.includes('schedule today') || lower.includes('plan today') || lower.includes('structure today')) {
+      reply = `I'd love to help structure your day, ${username}! Tell me: <strong>What are your top 2-3 priorities for today, and what hours are you working?</strong><br/><br/>
+      In the meantime, here is an optimized daily structure you can apply immediately:`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIGeneratedTimetable()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-calendar-check"></i> Apply Standard 8-Hour Work & Study Day</button>`;
+    }
+    // 5. CODING & PYTHON INTENT
+    else if (lower.includes('code') || lower.includes('coding') || lower.includes('python') || lower.includes('javascript') || lower.includes('web')) {
+      reply = `For mastering <em>"${escapeHtml(prompt)}"</em>, ${username}: focus on building real projects (like PlanTrack's Python AI engine <strong>ai_engine.py</strong>) rather than watching endless tutorials! Break your learning into daily 45-minute coding sprints.`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-code"></i> Create 14-Day Coding Sprint Plan</button>`;
+    }
+    // 6. GENERAL ACCURATE Q&A
+    else {
+      reply = `Here is a tailored guide for <strong>"${escapeHtml(prompt)}"</strong>, ${username}:<br/><br/>
+      To succeed with this, break the main goal down into small, daily manageable tasks. Consistency and focused execution will yield the best results.<br/><br/>
+      <em>Would you like me to convert this into a step-by-step PlanTrack Plan or Timetable?</em>`;
+      actionBtnHtml = `<button class="btn-save" onclick="applyAIBreakdownToPlan()" type="button" style="margin-top:10px;padding:6px 14px;font-size:0.82rem"><i class="fa fa-wand-magic-sparkles"></i> Convert Prompt to Action Plan</button>`;
+    }
+
+    const aiRow = document.createElement('div');
+    aiRow.style.cssText = 'display:flex;gap:10px;align-items:flex-start';
+    aiRow.innerHTML = `
+      <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#9b59b6,#3498db);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1rem;flex-shrink:0"><i class="fa fa-robot"></i></div>
+      <div style="background:rgba(255,255,255,0.06);padding:12px 16px;border-radius:12px;max-width:85%;font-size:0.92rem;line-height:1.6;color:var(--text1)">
+        ${reply}
+        <br/>${actionBtnHtml}
+      </div>
+    `;
+    log.appendChild(aiRow);
+    log.scrollTop = log.scrollHeight;
+  }, 700);
+};
+
+window.applyAIGeneratedTimetable = async function() {
+  if (!currentUserId) return;
+  const columns = ["Time", "Activity", "Focus Level", "Venue"];
+  const rows = [
+    ["08:30 - 10:00", "Deep Work Block #1", "High", "Office / Desk"],
+    ["10:00 - 10:15", "Rest & Binaural Beats", "Rest", "Break Area"],
+    ["10:15 - 12:00", "Team Communications & Tasks", "Medium", "Online / Meeting Room"],
+    ["01:30 - 03:00", "Deep Work Block #2", "High", "Quiet Zone"],
+    ["04:00 - 04:30", "Daily Review & Wrap Up", "Low", "Desk"]
+  ];
+
+  const { error } = await db.from('timetables').insert({
+    user_id: currentUserId,
+    title: "AI Optimized Work Schedule",
+    type: "Work/Business",
+    columns,
+    rows
+  });
+
+  if (error) {
+    toast('Error creating timetable: ' + error.message, 'error');
+  } else {
+    toast('✨ AI Timetable added to your account!', 'success');
+    closeModal('modal-ai-copilot');
+    if (window.loadTimetables) loadTimetables();
+    showSection('timetable');
+  }
+};
+
+window.applyAIBreakdownToPlan = async function() {
+  if (!currentUserId) return;
+  const title = "AI Action Plan — " + new Date().toLocaleDateString();
+  const start_date = today();
+  const end_date = today();
+  const activities = [
+    { text: "Complete 25-min Deep Focus session", status: null },
+    { text: "Review & check off pending activities", status: null },
+    { text: "Send daily update to team/friend", status: null }
+  ];
+
+  const { error } = await db.from('plans').insert({
+    user_id: currentUserId,
+    title,
+    duration: "daily",
+    start_date,
+    end_date,
+    activities
+  });
+
+  if (error) {
+    toast('Error creating plan: ' + error.message, 'error');
+  } else {
+    toast('✨ AI Tasks added to your Plans!', 'success');
+    closeModal('modal-ai-copilot');
+    if (window.loadPlans) loadPlans();
+    showSection('plans');
+  }
+};
+

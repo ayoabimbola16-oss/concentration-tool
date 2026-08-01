@@ -12,13 +12,13 @@
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "WhatsApp Image 2026-04-07 at 20.53.13.jpeg",
+      "src": "assets/images/logo.jpeg",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "WhatsApp Image 2026-04-07 at 20.53.13.jpeg",
+      "src": "assets/images/logo.jpeg",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
