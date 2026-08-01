@@ -1823,6 +1823,91 @@ async function snoozeAlarm(isRemote = false) {
 //  TIMETABLE — SMART UNIFIED CREATOR
 // ═══════════════════════════════════════════════════════════════
 
+// ── Column Chip Management ────────────────────────────────────
+let _ttcCols = []; // current columns list
+
+function initTTCChips(cols = ['Day', 'Subject', 'Time', 'Venue']) {
+  _ttcCols = [...cols];
+  renderTTCChips();
+}
+
+function renderTTCChips() {
+  const wrap = document.getElementById('ttc-col-chips');
+  const placeholder = document.getElementById('ttc-chips-placeholder');
+  if (!wrap) return;
+
+  // Clear old chips
+  Array.from(wrap.querySelectorAll('.ttc-col-chip')).forEach(el => el.remove());
+
+  if (placeholder) placeholder.style.display = _ttcCols.length ? 'none' : 'inline';
+
+  _ttcCols.forEach((col, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'ttc-col-chip';
+    chip.setAttribute('draggable', 'true');
+    chip.dataset.idx = i;
+    chip.innerHTML = `${escHtml(col)} <button class="chip-del" type="button" onclick="removeTTCCol(${i})" title="Remove column">×</button>`;
+
+    // Drag-to-reorder
+    chip.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', i);
+      chip.style.opacity = '0.5';
+    });
+    chip.addEventListener('dragend', () => chip.style.opacity = '1');
+    chip.addEventListener('dragover', e => e.preventDefault());
+    chip.addEventListener('drop', e => {
+      e.preventDefault();
+      const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+      const toIdx = parseInt(chip.dataset.idx);
+      if (fromIdx !== toIdx) {
+        const moved = _ttcCols.splice(fromIdx, 1)[0];
+        _ttcCols.splice(toIdx, 0, moved);
+        renderTTCChips();
+        rebuildTTCTable();
+      }
+    });
+
+    wrap.appendChild(chip);
+  });
+
+  // Mark suggestion buttons as used
+  const suggBtns = document.querySelectorAll('.ttc-sugg-btn');
+  suggBtns.forEach(btn => {
+    const colName = btn.textContent.trim().replace(/^[^\s]+\s/, ''); // strip emoji
+    btn.classList.toggle('used', _ttcCols.includes(colName));
+  });
+
+  // Sync hidden input
+  const hiddenInput = document.getElementById('ttc-cols');
+  if (hiddenInput) hiddenInput.value = _ttcCols.join(',');
+}
+
+window.addTTCCol = function(name) {
+  if (!name || _ttcCols.includes(name)) {
+    if (_ttcCols.includes(name)) toast(`"${name}" column already added`, 'info');
+    return;
+  }
+  _ttcCols.push(name);
+  renderTTCChips();
+  rebuildTTCTable();
+};
+
+window.addTTCColFromInput = function() {
+  const inp = document.getElementById('ttc-col-custom-input');
+  if (!inp) return;
+  const name = inp.value.trim();
+  if (!name) { toast('Please type a column name', 'error'); return; }
+  addTTCCol(name);
+  inp.value = '';
+  inp.focus();
+};
+
+window.removeTTCCol = function(idx) {
+  _ttcCols.splice(idx, 1);
+  renderTTCChips();
+  rebuildTTCTable();
+};
+
 const TT_TEMPLATES = {
   school: {
     name: 'School Week',
@@ -1869,14 +1954,13 @@ const TT_TEMPLATES = {
   },
   gym: {
     name: 'Gym / Fitness Plan',
-    cols: ['Day', 'Workout', 'Time', 'Sets × Reps', 'Notes'],
+    cols: ['Day', 'Workout', 'Time', 'Sets x Reps', 'Notes'],
     rows: [
-      ['Monday', 'Chest & Triceps', '06:00 - 07:30', 'Bench Press 4×10', 'Increase weight'],
-      ['Monday', 'Push-ups', '06:00 - 07:30', '3×20', 'Warm up first'],
-      ['Tuesday', 'Back & Biceps', '06:00 - 07:30', 'Pull-ups 4×8', 'Full range of motion'],
+      ['Monday', 'Chest & Triceps', '06:00 - 07:30', 'Bench Press 4x10', 'Increase weight'],
+      ['Tuesday', 'Back & Biceps', '06:00 - 07:30', 'Pull-ups 4x8', 'Full range of motion'],
       ['Wednesday', 'Rest / Light Cardio', '06:00 - 06:30', '30 min jog', 'Active recovery'],
-      ['Thursday', 'Legs', '06:00 - 07:30', 'Squats 5×10', 'Use belt for heavy sets'],
-      ['Friday', 'Shoulders & Core', '06:00 - 07:30', 'Military Press 4×10', 'Slow negatives'],
+      ['Thursday', 'Legs', '06:00 - 07:30', 'Squats 5x10', 'Use belt for heavy sets'],
+      ['Friday', 'Shoulders & Core', '06:00 - 07:30', 'Military Press 4x10', 'Slow negatives'],
       ['Saturday', 'Full Body HIIT', '07:00 - 08:00', '20 min circuit', 'Keep heart rate up'],
       ['Sunday', 'Rest & Stretch', '-', '-', 'Recovery day'],
     ]
@@ -1911,105 +1995,182 @@ const TT_TEMPLATES = {
 
 let ttcEditId = null;
 
+
+
 function openTimetableModal(tt = null) {
   ttcEditId = tt ? tt.id : null;
-  const nameEl = document.getElementById('ttc-name');
-  const colsEl = document.getElementById('ttc-cols');
-  const wrap = document.getElementById('ttc-table-wrap');
+
+  const nameEl  = document.getElementById('ttc-name');
+  const wrap    = document.getElementById('ttc-table-wrap');
   const heading = document.getElementById('ttc-heading');
+  const aiProm  = document.getElementById('ttc-ai-prompt');
 
-  if (nameEl) nameEl.value = tt?.tt_type || '';
-  if (colsEl) colsEl.value = tt?.columns?.join(',') || 'Day,Subject,Time,Venue';
-  if (wrap) wrap.innerHTML = '';
+  if (nameEl)  nameEl.value = tt?.tt_type || '';
+  if (wrap)    wrap.innerHTML = '';
   if (heading) heading.textContent = tt ? 'Edit Timetable' : 'Create Timetable';
+  if (aiProm)  aiProm.value = '';
 
-  if (tt) {
-    rebuildTTCTable();
-    if (tt.rows) tt.rows.forEach(r => addTTCRow(r));
+  // Init chips from existing timetable or default
+  const startCols = tt?.columns?.length ? tt.columns : ['Day', 'Subject', 'Time', 'Venue'];
+  initTTCChips(startCols);
+
+  if (tt && tt.rows) {
+    tt.rows.forEach(r => addTTCRow(r));
   } else {
-    rebuildTTCTable();
-    // Start with 3 empty rows
+    // 3 empty starter rows
     addTTCRow(); addTTCRow(); addTTCRow();
   }
   openModal('modal-tt-create');
 }
 
 function rebuildTTCTable() {
-  const cols = (document.getElementById('ttc-cols')?.value || '').split(',').map(c => c.trim()).filter(Boolean);
-  if (!cols.length) { toast('Please enter column names', 'error'); return; }
+  const cols = _ttcCols.length ? _ttcCols : (document.getElementById('ttc-cols')?.value || '').split(',').map(c => c.trim()).filter(Boolean);
+  if (!cols.length) { toast('Add at least one column first', 'error'); return; }
+
   const wrap = document.getElementById('ttc-table-wrap');
+  // Save existing row values before rebuilding
   const existRows = wrap ? Array.from(wrap.querySelectorAll('tbody tr')).map(tr =>
     Array.from(tr.querySelectorAll('input')).map(i => i.value)) : [];
-  wrap.innerHTML = `<table class="tt-table" style="width:100%;border-collapse:collapse">
-    <thead><tr style="background:rgba(240,192,64,0.12)">${cols.map(c => `<th style="padding:10px 12px;text-align:left;font-size:0.82rem;color:var(--accent);font-weight:600;border-bottom:1px solid var(--border)">${escHtml(c)}</th>`).join('')}<th style="width:36px;border-bottom:1px solid var(--border)"></th></tr></thead>
+
+  wrap.innerHTML = `<table class="tt-table">
+    <thead><tr>${cols.map(c => `<th>${escHtml(c)}</th>`).join('')}<th style="width:32px"></th></tr></thead>
     <tbody></tbody></table>`;
   existRows.forEach(r => addTTCRow(r));
 }
 
 function addTTCRow(values = []) {
-  const cols = (document.getElementById('ttc-cols')?.value || '').split(',').map(c => c.trim()).filter(Boolean);
+  const cols  = _ttcCols.length ? _ttcCols : [];
   const tbody = document.querySelector('#ttc-table-wrap tbody');
   if (!tbody) { rebuildTTCTable(); return; }
   const tr = document.createElement('tr');
-  tr.style.cssText = 'border-bottom:1px solid var(--border);transition:background .15s';
-  tr.innerHTML = cols.map((_, i) => `<td style="padding:4px 6px"><input type="text" value="${escHtml(values[i] || '')}" placeholder="—" style="width:100%;background:transparent;border:none;border-radius:4px;padding:7px 8px;color:var(--text1);font-size:0.88rem;outline:none;box-sizing:border-box" onfocus="this.style.background='rgba(255,255,255,0.06)'" onblur="this.style.background='transparent'"/></td>`).join('')
-    + `<td style="padding:4px;text-align:center"><button type="button" onclick="this.closest('tr').remove()" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:4px 6px;border-radius:4px;font-size:0.85rem" onmouseover="this.style.color='#e74c3c'" onmouseout="this.style.color='var(--text3)'"><i class="fa fa-times"></i></button></td>`;
+  tr.innerHTML = cols.map((_, i) =>
+    `<td><input type="text" value="${escHtml(values[i] || '')}" placeholder="—"/></td>`
+  ).join('') + `<td style="text-align:center;padding:2px 4px">
+    <button type="button" onclick="this.closest('tr').remove()"
+      style="background:none;border:none;color:var(--text3);cursor:pointer;padding:5px;font-size:.8rem"
+      onmouseover="this.style.color='#e74c3c'" onmouseout="this.style.color='var(--text3)'">
+      <i class="fa fa-times"></i>
+    </button></td>`;
   tbody.appendChild(tr);
-  // Focus first empty cell
-  const firstInput = tr.querySelector('input');
-  if (firstInput && !values.length) setTimeout(() => firstInput.focus(), 50);
+  if (!values.length) setTimeout(() => { const f = tr.querySelector('input'); if(f) f.focus(); }, 50);
 }
 
-async function loadTimetables() {
-  const { data } = await db.from('timetables').select('*').eq('user_id',currentUserId).order('created_at',{ascending:false});
-  renderTimetables(data||[]);
-}
+window.applyTTTemplate = function(templateKey) {
+  const t = TT_TEMPLATES[templateKey];
+  if (!t) return;
+  const nameEl = document.getElementById('ttc-name');
+  if (nameEl && !nameEl.value.trim()) nameEl.value = t.name;
+  // Set chips to template columns
+  initTTCChips(t.cols);
+  // Clear existing rows and add template rows
+  const wrap = document.getElementById('ttc-table-wrap');
+  if (wrap) wrap.innerHTML = '';
+  rebuildTTCTable();
+  t.rows.forEach(r => addTTCRow(r));
+  toast(`✅ "${t.name}" template applied — edit cells then save!`, 'success');
+};
 
-function renderTimetables(list) {
-  const grid  = document.getElementById('timetable-grid');
-  const empty = document.getElementById('tt-empty');
-  grid.innerHTML = '';
-  if (!list.length) { empty.style.display='block'; return; }
-  empty.style.display = 'none';
-  list.forEach(tt => {
-    const card = document.createElement('div');
-    card.className = 'tt-card';
-    card.innerHTML = `
-      <div class="tt-card-title">${escHtml(tt.tt_type)}</div>
-      <div class="tt-type-pill"><i class="fa fa-table"></i> Timetable</div>
-      <div class="tt-card-meta">${tt.rows?.length||0} rows · ${tt.columns?.length||0} columns</div>
-      <div class="tt-card-actions">
-        <button class="icon-btn" onclick="viewTimetable('${tt.id}')" type="button"><i class="fa fa-eye"></i> View</button>
-        <button class="icon-btn" onclick="shareTimetable('${tt.id}')" type="button"><i class="fa fa-share-alt"></i> Share</button>
-        <button class="icon-btn" onclick="editTimetable('${tt.id}')" type="button"><i class="fa fa-edit"></i> Edit</button>
-        <button class="icon-btn del" onclick="confirmDelete('timetable','${tt.id}','${escHtml(tt.tt_type)}')" type="button"><i class="fa fa-trash"></i></button>
-      </div>`;
-    grid.appendChild(card);
-  });
-}
+window.generateAITimetable = async function() {
+  const prompt = (document.getElementById('ttc-ai-prompt')?.value || '').trim();
+  if (!prompt) { toast('Please describe what you want', 'error'); return; }
+  const btn = document.getElementById('ttc-ai-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Building...'; }
 
-async function viewTimetable(id) {
-  const { data:tt } = await db.from('timetables').select('*').eq('id',id).single();
-  if (!tt) return;
-  document.getElementById('ttv-heading').innerHTML = `<i class="fa fa-calendar-alt" style="color:var(--accent)"></i> ${escHtml(tt.tt_type)}`;
-  document.getElementById('ttv-body').innerHTML = `<div class="tt-table-wrap">
-    <table class="tt-table">
-      <thead><tr>${tt.columns.map(c=>`<th>${escHtml(c)}</th>`).join('')}</tr></thead>
-      <tbody>${(tt.rows||[]).map(row=>`<tr>${row.map(c=>`<td>${escHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody>
-    </table></div>`;
-  openModal('modal-tt-view');
-}
+  await new Promise(r => setTimeout(r, 1200));
+
+  const lower = prompt.toLowerCase();
+  let cols, rows, name;
+
+  if (lower.includes('school') || lower.includes('class') || lower.includes('lesson') || lower.includes('subject')) {
+    ({ cols, rows, name } = TT_TEMPLATES.school);
+    name = 'School Timetable (AI)';
+  } else if (lower.includes('work') || lower.includes('meeting') || lower.includes('office')) {
+    ({ cols, rows, name } = TT_TEMPLATES.work);
+    name = 'Work Schedule (AI)';
+  } else if (lower.includes('gym') || lower.includes('workout') || lower.includes('fitness') || lower.includes('exercise')) {
+    ({ cols, rows, name } = TT_TEMPLATES.gym);
+    name = 'Fitness Plan (AI)';
+  } else if (lower.includes('meal') || lower.includes('food') || lower.includes('diet') || lower.includes('eat')) {
+    ({ cols, rows, name } = TT_TEMPLATES.meal);
+    name = 'Meal Plan (AI)';
+  } else if (lower.includes('study') || lower.includes('revision') || lower.includes('exam')) {
+    ({ cols, rows, name } = TT_TEMPLATES.study);
+    name = 'Study Plan (AI)';
+  } else if (lower.includes('meeting') || lower.includes('agenda') || lower.includes('client')) {
+    ({ cols, rows, name } = TT_TEMPLATES.meeting);
+    name = 'Meetings Schedule (AI)';
+  } else {
+    cols = ['Day', 'Activity', 'Time', 'Notes'];
+    rows = [
+      ['Monday', 'Morning Routine', '06:00 - 07:00', 'Your custom schedule'],
+      ['Monday', 'Core Task', '09:00 - 12:00', 'Main work block'],
+      ['Tuesday', 'Morning Routine', '06:00 - 07:00', 'Your custom schedule'],
+      ['Tuesday', 'Core Task', '09:00 - 12:00', 'Main work block'],
+      ['Wednesday', 'Review', '10:00 - 12:00', 'Progress check'],
+      ['Thursday', 'Core Task', '09:00 - 12:00', 'Main work block'],
+      ['Friday', 'Weekly Wrap-up', '16:00 - 17:00', 'Review & plan ahead'],
+    ];
+    name = 'Custom Schedule (AI)';
+  }
+
+  const nameEl = document.getElementById('ttc-name');
+  if (nameEl && !nameEl.value.trim()) nameEl.value = name;
+  initTTCChips(cols);
+  const wrap = document.getElementById('ttc-table-wrap');
+  if (wrap) wrap.innerHTML = '';
+  rebuildTTCTable();
+  rows.forEach(r => addTTCRow(r));
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-wand-magic-sparkles"></i> Generate'; }
+  const promptEl = document.getElementById('ttc-ai-prompt');
+  if (promptEl) promptEl.value = '';
+  toast(`🤖 AI built "${name}" — review and edit, then save!`, 'success');
+};
+
+window.saveTimetableNew = async function() {
+  const name  = (document.getElementById('ttc-name')?.value || '').trim();
+  const cols  = _ttcCols.length ? _ttcCols : [];
+  const tbody = document.querySelector('#ttc-table-wrap tbody');
+  if (!name)        { toast('Please enter a timetable name', 'error'); return; }
+  if (!cols.length) { toast('Please add at least one column', 'error'); return; }
+  if (!tbody)       { toast('Please build the table first', 'error'); return; }
+  const rows = Array.from(tbody.querySelectorAll('tr'))
+    .map(tr => Array.from(tr.querySelectorAll('input')).map(i => i.value))
+    .filter(r => r.some(c => c.trim()));
+  if (!rows.length) { toast('Add at least one row of data', 'error'); return; }
+
+  const payload = { user_id: currentUserId, tt_type: name, columns: cols, rows };
+  let error;
+  if (ttcEditId) {
+    ({ error } = await db.from('timetables').update(payload).eq('id', ttcEditId).eq('user_id', currentUserId));
+  } else {
+    ({ error } = await db.from('timetables').insert(payload));
+  }
+  if (error) { toast('Error saving timetable: ' + error.message, 'error'); return; }
+  toast(ttcEditId ? '✅ Timetable updated!' : '✅ Timetable saved!', 'success');
+  closeModal('modal-tt-create');
+  ttcEditId = null;
+  _ttcCols = [];
+  loadTimetables();
+};
+
+// Legacy compat shims
+function goTTStep2()  { openTimetableModal(); }
+function backToTT1() { closeModal('modal-tt-create'); }
+function buildTTTable() { rebuildTTCTable(); }
+function addTTRow(v) { addTTCRow(v); }
+async function saveTimetable() { await saveTimetableNew(); }
 
 async function editTimetable(id) {
-  const { data:tt } = await db.from('timetables').select('*').eq('id',id).single();
+  const { data: tt } = await db.from('timetables').select('*').eq('id', id).single();
   if (!tt) return;
-  ttEditId = id;
-  document.getElementById('tt-type').value = tt.tt_type;
-  goTTStep2();
+  ttcEditId = id;
+  openTimetableModal(tt);
 }
 
 // ═══════════════════════════════════════════════════════════════
 //  FILE MANAGER
+
 // ═══════════════════════════════════════════════════════════════
 function openFolderModal(folder = null) {
   editingFolderId = folder ? folder.id : null;
