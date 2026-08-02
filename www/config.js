@@ -11,3 +11,7 @@ const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 //  Supabase Storage bucket names (create these in your dashboard)
 // ────────────────────────────────────────────────────────────────
 const STORAGE_BUCKET = 'user-files';   // bucket for all uploaded files
+
+// Optional server-side AI endpoint. Leave empty to use the built-in private
+// activity planner. For local development run: python ai_engine.py --serve
+const AI_COPILOT_ENDPOINT = '';

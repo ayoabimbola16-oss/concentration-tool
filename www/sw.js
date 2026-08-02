@@ -6,19 +6,19 @@
 //    3. In-app reminder messages sent to open clients at 15/10 min marks
 // ================================================================
 
-const APP_VERSION = 'plantrack-v25';
-const DATA_CACHE  = 'plantrack-data-v25';
-
+const APP_VERSION = 'plantrack-v24';
+const DATA_CACHE  = 'plantrack-data-v24';
 
 const APP_FILES = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './ai-copilot.js',
   './config.js',
   './offline.js',
   './manifest.json',
-  './assets/images/logo.jpeg',
+  './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
 ];
 
 const STATIC_FILES = [
@@ -273,8 +273,8 @@ async function scheduleOne(tag, title, body, timestampMs, requireInteraction) {
   const opts = {
     body,
     tag,
-    icon:    './assets/images/logo.jpeg',
-    badge:   './assets/images/logo.jpeg',
+    icon:    './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+    badge:   './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
     requireInteraction,
     renotify: true,
     vibrate: requireInteraction
@@ -517,8 +517,8 @@ async function checkPlanReminder() {
     : `You have ${total} activities pending across ${names.length} plans.`;
   await self.registration.showNotification('📋 Daily Activity Reminder', {
     body, tag: 'daily-plan-reminder',
-    icon: './assets/images/logo.jpeg',
-    badge: './assets/images/logo.jpeg',
+    icon: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+    badge: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
     vibrate: [200, 100, 200],
   });
   await saveData(firedKey, true);
@@ -530,8 +530,8 @@ async function checkPlanReminder() {
 async function showAlarmNotif(title, body, tag, requireInteraction) {
   return self.registration.showNotification(title, {
     body, tag, requireInteraction,
-    icon:    './assets/images/logo.jpeg',
-    badge:   './assets/images/logo.jpeg',
+    icon:    './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+    badge:   './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
     renotify: true,
     vibrate: requireInteraction
       ? [500, 200, 500, 200, 500, 200, 500]
@@ -551,8 +551,8 @@ async function showReminderNotif(alarm, minutesBefore) {
     {
       body:    `"${alarm.label}" rings at ${fmt12(alarm.time)}`,
       tag:     `remind${minutesBefore}-${alarm.id}`,
-      icon:    './assets/images/logo.jpeg',
-      badge:   './assets/images/logo.jpeg',
+      icon:    './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
+      badge:   './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
       vibrate: [200, 100, 200],
       requireInteraction: false,
       actions: [{ action: 'open', title: 'Open App' }],

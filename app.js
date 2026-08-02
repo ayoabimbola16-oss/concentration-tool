@@ -36,14 +36,12 @@
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_ANON, {
   auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
+    persistSession: true,         // store session in localStorage (default, explicit)
+    autoRefreshToken: true,       // auto-refresh expired tokens
+    detectSessionInUrl: true,     // parse OAuth tokens from URL hash
+    storageKey: 'plantrack-auth', // custom key to avoid collisions
   }
 });
-
-
-
 
 // ── Global State ─────────────────────────────────────────────────
 let currentUser             = null;
@@ -205,20 +203,14 @@ function toast(msg, type = 'info') {
 
 function showAuthMsg(msg, type = 'error') {
   const el = document.getElementById('auth-msg');
-  if (!el) return;
   el.textContent = msg;
   el.className = `auth-msg ${type}`;
   el.style.display = 'block';
-  // Auto-clear info/success messages so they don't stay stuck
-  clearTimeout(el._authTimer);
-  if (type === 'info' || type === 'success') {
-    el._authTimer = setTimeout(() => { el.style.display = 'none'; }, 6000);
-  }
 }
 
 function closeAuthMsg() {
   const el = document.getElementById('auth-msg');
-  if (el) { el.style.display = 'none'; clearTimeout(el._authTimer); }
+  if (el) el.style.display = 'none';
 }
 
 function closeModal(id) {
@@ -531,19 +523,7 @@ async function login() {
   if (!username) { showAuthMsg('Please enter your username.'); return; }
   if (!password) { showAuthMsg('Please enter your password.'); return; }
 
-  // Show loading state on button
-  const loginBtn = document.querySelector('#tab-login .auth-btn');
-  const originalBtnHTML = loginBtn ? loginBtn.innerHTML : '';
-  if (loginBtn) {
-    loginBtn.disabled = true;
-    loginBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Signing in…';
-  }
-  const resetBtn = () => {
-    if (loginBtn) { loginBtn.disabled = false; loginBtn.innerHTML = originalBtnHTML; }
-  };
-
   showAuthMsg('Signing in...', 'info');
-
 
   try {
     // Step 1: find email from username (case-insensitive match)
@@ -575,13 +555,11 @@ async function login() {
       } else {
         showAuthMsg('Error looking up username (' + (profileError.message || 'unknown') + '). Please try again.');
       }
-      resetBtn();
       return;
     }
 
     if (!profile) {
       showAuthMsg('Username not found. Please check spelling and try again.');
-      resetBtn();
       return;
     }
 
@@ -603,23 +581,19 @@ async function login() {
       } else {
         showAuthMsg(error.message || 'Sign-in failed. Please try again.');
       }
-      resetBtn();
       return;
     }
 
     if (!data || !data.user) {
       showAuthMsg('Login failed unexpectedly. Please try again.');
-      resetBtn();
       return;
     }
 
     closeAuthMsg();
-    resetBtn();
     await initApp(data.user);
 
   } catch (err) {
     console.error('[PlanTrack Login] Unexpected exception:', err);
-    resetBtn();
     if (!navigator.onLine) {
       showAuthMsg('You are offline. Please check your internet connection.');
     } else {
@@ -629,47 +603,114 @@ async function login() {
 }
 
 async function signInWithGoogle() {
-  const btn = document.querySelector('.google-sign-btn');
   try {
-    if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; }
-    showAuthMsg('Connecting to Google…', 'info');
+    // Build the redirect URL. On native Capacitor we use custom deep link scheme.
+    const isCapacitor = window.Capacitor && window.Capacitor.isNative;
+    const currentUrl = window.location.href.split('#')[0].split('?')[0];
+    const redirectTo = isCapacitor ? 'com.lenovo.plantrack://login-callback' : currentUrl;
 
-    const isCapacitor = !!(window.Capacitor && window.Capacitor.isNative);
-    const cleanUrl    = window.location.href.split('#')[0].split('?')[0];
-    const redirectTo  = isCapacitor ? 'com.lenovo.plantrack://login-callback' : cleanUrl;
+    showAuthMsg(isCapacitor ? 'Redirecting to Google…' : 'Opening Google sign-in…', 'info');
 
+    // ── Get the OAuth URL without navigating away ──────────────
+    const { data, error } = await db.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: redirectTo,
+        skipBrowserRedirect: true   // ← don't navigate, just give us the URL
+      }
+    });
+    if (error) throw error;
+
+    if (!data?.url) {
+      showAuthMsg('Could not start Google sign-in. Please try again.');
+      return;
+    }
+
+    // ── Capacitor Native: Open in external Chrome/System Browser ──
     if (isCapacitor) {
-      const { data, error } = await db.auth.signInWithOAuth({
-        provider: 'google',
-        options: { redirectTo, skipBrowserRedirect: true }
-      });
-      if (error) throw error;
-      if (!data?.url) throw new Error('No OAuth URL returned');
-      if (window.Capacitor.Plugins?.Browser) {
+      if (window.Capacitor.Plugins && window.Capacitor.Plugins.Browser) {
         await window.Capacitor.Plugins.Browser.open({ url: data.url, windowName: '_system' });
       } else {
         window.open(data.url, '_system');
       }
-      if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
       return;
     }
 
-    const { error } = await db.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: cleanUrl }
-    });
+    // ── Web Popup Flow ──
+    const w = 500, h = 620;
+    const left = Math.max(0, (screen.width - w) / 2);
+    const top  = Math.max(0, (screen.height - h) / 2);
+    const popup = window.open(
+      data.url,
+      'google-auth',
+      `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes`
+    );
 
-    if (error) throw error;
+    // Fallback: if popup was blocked, fall back to full redirect
+    if (!popup || popup.closed) {
+      showAuthMsg('Popup blocked — redirecting…', 'info');
+      window.location.href = data.url;
+      return;
+    }
+
+    // ── Poll the popup until it redirects back with tokens ────
+    const pollTimer = setInterval(async () => {
+      try {
+        // Popup was closed manually by the user
+        if (!popup || popup.closed) {
+          clearInterval(pollTimer);
+          closeAuthMsg();
+          // Check if maybe the session was set anyway
+          const { data: { session } } = await db.auth.getSession();
+          if (!session) {
+            showAuthMsg('Sign-in was cancelled.');
+          }
+          return;
+        }
+
+        // Try to read the popup's URL — throws while on Google's domain
+        const popupUrl = popup.location.href;
+
+        // Check if the popup redirected back to our origin with tokens
+        if (popupUrl.startsWith(currentUrl) || popupUrl.startsWith(window.location.origin)) {
+          const hashFragment = popup.location.hash;
+
+          // Only process if we actually have tokens in the hash
+          if (hashFragment && hashFragment.includes('access_token')) {
+            clearInterval(pollTimer);
+            popup.close();
+
+            // Parse tokens from the hash fragment
+            const params = new URLSearchParams(hashFragment.substring(1));
+            const access_token  = params.get('access_token');
+            const refresh_token = params.get('refresh_token');
+
+            if (access_token && refresh_token) {
+              // Set the session on our main-window Supabase client
+              const { error: sessErr } = await db.auth.setSession({
+                access_token,
+                refresh_token
+              });
+              if (sessErr) {
+                console.error('[Google Auth] setSession error:', sessErr);
+                showAuthMsg('Error completing sign-in: ' + sessErr.message);
+              }
+              // onAuthStateChange will handle the rest (hide auth screen, init app)
+            } else {
+              showAuthMsg('Sign-in failed — missing tokens. Please try again.');
+            }
+          }
+        }
+      } catch (e) {
+        // Cross-origin error — popup is still on Google/Supabase domain, keep polling
+      }
+    }, 400);
+
   } catch (err) {
     console.error('[Google Auth]', err);
-    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
-    closeAuthMsg();
-    showAuthMsg('Google sign-in failed: ' + (err.message || 'Please try again.'));
+    showAuthMsg('Error signing in with Google: ' + err.message);
   }
 }
-
-
-
 
 async function register() {
   const username = document.getElementById('r-user').value.trim();
@@ -704,13 +745,11 @@ async function register() {
       if (profileErr) {
         console.warn('Profile upsert failed during register, will complete on login:', profileErr.message);
       }
-      showAuthMsg('Account created! Check your email to confirm, then sign in.', 'success');
+      showAuthMsg('Account created! You can now sign in.', 'success');
       document.getElementById('r-user').value = '';
       document.getElementById('r-email').value = '';
       document.getElementById('r-pass').value = '';
-      const confirmEl = document.getElementById('r-pass-confirm');
-      if (confirmEl) confirmEl.value = '';
-      setTimeout(() => switchTab('login'), 2000);
+      setTimeout(() => switchTab('login'), 1500);
     }
   } catch (err) {
     showAuthMsg('An error occurred. Please try again.');
@@ -751,58 +790,32 @@ async function initApp(user) {
   currentUser   = user;
   currentUserId = user.id;
 
-  // Immediately hide auth screen and show main app
-  document.getElementById('auth-screen').style.display = 'none';
-  document.getElementById('app').style.display = 'block';
-
-  // Mark landing as visited so logged-in users skip landing page redirect
-  try { localStorage.setItem('pt_visited_landing', '1'); } catch(e) {}
-
   // Load profile
-  let profile = null;
-  try {
-    const { data } = await db.from('profiles').select('*').eq('id', user.id).maybeSingle();
-    profile = data;
-  } catch(err) {
-    console.warn('[initApp] Profile load error:', err);
-  }
-
-  // If no profile exists yet (e.g. new Google OAuth user), auto-create one
-  if (!profile) {
-    const meta = user.user_metadata || {};
-    const rawName = meta.username || meta.full_name || meta.name || user.email?.split('@')[0] || 'user';
-    const cleanUsername = rawName.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
-
-    const newProfilePayload = {
-      id: user.id,
-      username: cleanUsername,
-      email: user.email,
-      avatar_url: meta.avatar_url || meta.picture || ''
-    };
-
-    try {
-      const { data: createdProfile } = await db.from('profiles').upsert(newProfilePayload, { onConflict: 'id' }).select('*').maybeSingle();
-      profile = createdProfile || newProfilePayload;
-    } catch(e) {
-      profile = newProfilePayload;
-    }
-  }
-
-  const needsProfileSetup = !profile || !profile.username;
+  let { data: profile } = await db.from('profiles').select('*').eq('id', user.id).maybeSingle();
+  
+  const needsProfileSetup = !profile || !profile.username || !profile.avatar_url;
 
   if (needsProfileSetup) {
+    // Pre-fill username if they already have one (only avatar missing)
     if (profile && profile.username) {
       const setupInput = document.getElementById('setup-username-input');
       if (setupInput) setupInput.value = profile.username;
     }
 
+    // Show the complete profile modal
     openModal('modal-complete-profile');
 
+    // Update modal subtitle based on what's missing
     const modalP = document.querySelector('#modal-complete-profile .mb p');
     if (modalP) {
-      modalP.textContent = 'Welcome! Please choose a username to complete your setup.';
+      if (!profile || !profile.username) {
+        modalP.textContent = 'Welcome! Please choose a username and upload a profile picture to continue.';
+      } else {
+        modalP.textContent = 'Almost there! Please upload a profile picture to complete your account setup.';
+      }
     }
 
+    // Hide the close button to force completion
     const closeBtn = document.querySelector('#modal-complete-profile .mclose');
     if (closeBtn) closeBtn.style.display = 'none';
   }
@@ -825,14 +838,17 @@ async function initApp(user) {
   // Update PlanTrack PRO Trial status badge
   if (window.checkProTrialStatus) window.checkProTrialStatus();
 
-  // Non-blocking async tasks
-  syncStreak().catch(err => console.warn('[initApp] Streak sync error:', err));
-  loadUserSounds().catch(err => console.warn('[initApp] Sounds load error:', err));
+  // Sync daily streak (Supabase-backed)
+  await syncStreak();
+
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  await loadUserSounds();
 
   // Restore last visited section (so refresh stays on same page)
   const lastSection = (() => { try { return localStorage.getItem('pt_last_section') || 'alarms'; } catch(e) { return 'alarms'; } })();
   showSection(lastSection);
-
 
   startAlarmChecker();
   startAlarmCountdown();
@@ -1807,91 +1823,6 @@ async function snoozeAlarm(isRemote = false) {
 //  TIMETABLE — SMART UNIFIED CREATOR
 // ═══════════════════════════════════════════════════════════════
 
-// ── Column Chip Management ────────────────────────────────────
-let _ttcCols = []; // current columns list
-
-function initTTCChips(cols = ['Day', 'Subject', 'Time', 'Venue']) {
-  _ttcCols = [...cols];
-  renderTTCChips();
-}
-
-function renderTTCChips() {
-  const wrap = document.getElementById('ttc-col-chips');
-  const placeholder = document.getElementById('ttc-chips-placeholder');
-  if (!wrap) return;
-
-  // Clear old chips
-  Array.from(wrap.querySelectorAll('.ttc-col-chip')).forEach(el => el.remove());
-
-  if (placeholder) placeholder.style.display = _ttcCols.length ? 'none' : 'inline';
-
-  _ttcCols.forEach((col, i) => {
-    const chip = document.createElement('span');
-    chip.className = 'ttc-col-chip';
-    chip.setAttribute('draggable', 'true');
-    chip.dataset.idx = i;
-    chip.innerHTML = `${escHtml(col)} <button class="chip-del" type="button" onclick="removeTTCCol(${i})" title="Remove column">×</button>`;
-
-    // Drag-to-reorder
-    chip.addEventListener('dragstart', e => {
-      e.dataTransfer.setData('text/plain', i);
-      chip.style.opacity = '0.5';
-    });
-    chip.addEventListener('dragend', () => chip.style.opacity = '1');
-    chip.addEventListener('dragover', e => e.preventDefault());
-    chip.addEventListener('drop', e => {
-      e.preventDefault();
-      const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
-      const toIdx = parseInt(chip.dataset.idx);
-      if (fromIdx !== toIdx) {
-        const moved = _ttcCols.splice(fromIdx, 1)[0];
-        _ttcCols.splice(toIdx, 0, moved);
-        renderTTCChips();
-        rebuildTTCTable();
-      }
-    });
-
-    wrap.appendChild(chip);
-  });
-
-  // Mark suggestion buttons as used
-  const suggBtns = document.querySelectorAll('.ttc-sugg-btn');
-  suggBtns.forEach(btn => {
-    const colName = btn.textContent.trim().replace(/^[^\s]+\s/, ''); // strip emoji
-    btn.classList.toggle('used', _ttcCols.includes(colName));
-  });
-
-  // Sync hidden input
-  const hiddenInput = document.getElementById('ttc-cols');
-  if (hiddenInput) hiddenInput.value = _ttcCols.join(',');
-}
-
-window.addTTCCol = function(name) {
-  if (!name || _ttcCols.includes(name)) {
-    if (_ttcCols.includes(name)) toast(`"${name}" column already added`, 'info');
-    return;
-  }
-  _ttcCols.push(name);
-  renderTTCChips();
-  rebuildTTCTable();
-};
-
-window.addTTCColFromInput = function() {
-  const inp = document.getElementById('ttc-col-custom-input');
-  if (!inp) return;
-  const name = inp.value.trim();
-  if (!name) { toast('Please type a column name', 'error'); return; }
-  addTTCCol(name);
-  inp.value = '';
-  inp.focus();
-};
-
-window.removeTTCCol = function(idx) {
-  _ttcCols.splice(idx, 1);
-  renderTTCChips();
-  rebuildTTCTable();
-};
-
 const TT_TEMPLATES = {
   school: {
     name: 'School Week',
@@ -1938,13 +1869,14 @@ const TT_TEMPLATES = {
   },
   gym: {
     name: 'Gym / Fitness Plan',
-    cols: ['Day', 'Workout', 'Time', 'Sets x Reps', 'Notes'],
+    cols: ['Day', 'Workout', 'Time', 'Sets × Reps', 'Notes'],
     rows: [
-      ['Monday', 'Chest & Triceps', '06:00 - 07:30', 'Bench Press 4x10', 'Increase weight'],
-      ['Tuesday', 'Back & Biceps', '06:00 - 07:30', 'Pull-ups 4x8', 'Full range of motion'],
+      ['Monday', 'Chest & Triceps', '06:00 - 07:30', 'Bench Press 4×10', 'Increase weight'],
+      ['Monday', 'Push-ups', '06:00 - 07:30', '3×20', 'Warm up first'],
+      ['Tuesday', 'Back & Biceps', '06:00 - 07:30', 'Pull-ups 4×8', 'Full range of motion'],
       ['Wednesday', 'Rest / Light Cardio', '06:00 - 06:30', '30 min jog', 'Active recovery'],
-      ['Thursday', 'Legs', '06:00 - 07:30', 'Squats 5x10', 'Use belt for heavy sets'],
-      ['Friday', 'Shoulders & Core', '06:00 - 07:30', 'Military Press 4x10', 'Slow negatives'],
+      ['Thursday', 'Legs', '06:00 - 07:30', 'Squats 5×10', 'Use belt for heavy sets'],
+      ['Friday', 'Shoulders & Core', '06:00 - 07:30', 'Military Press 4×10', 'Slow negatives'],
       ['Saturday', 'Full Body HIIT', '07:00 - 08:00', '20 min circuit', 'Keep heart rate up'],
       ['Sunday', 'Rest & Stretch', '-', '-', 'Recovery day'],
     ]
@@ -1979,182 +1911,105 @@ const TT_TEMPLATES = {
 
 let ttcEditId = null;
 
-
-
 function openTimetableModal(tt = null) {
   ttcEditId = tt ? tt.id : null;
-
-  const nameEl  = document.getElementById('ttc-name');
-  const wrap    = document.getElementById('ttc-table-wrap');
+  const nameEl = document.getElementById('ttc-name');
+  const colsEl = document.getElementById('ttc-cols');
+  const wrap = document.getElementById('ttc-table-wrap');
   const heading = document.getElementById('ttc-heading');
-  const aiProm  = document.getElementById('ttc-ai-prompt');
 
-  if (nameEl)  nameEl.value = tt?.tt_type || '';
-  if (wrap)    wrap.innerHTML = '';
+  if (nameEl) nameEl.value = tt?.tt_type || '';
+  if (colsEl) colsEl.value = tt?.columns?.join(',') || 'Day,Subject,Time,Venue';
+  if (wrap) wrap.innerHTML = '';
   if (heading) heading.textContent = tt ? 'Edit Timetable' : 'Create Timetable';
-  if (aiProm)  aiProm.value = '';
 
-  // Init chips from existing timetable or default
-  const startCols = tt?.columns?.length ? tt.columns : ['Day', 'Subject', 'Time', 'Venue'];
-  initTTCChips(startCols);
-
-  if (tt && tt.rows) {
-    tt.rows.forEach(r => addTTCRow(r));
+  if (tt) {
+    rebuildTTCTable();
+    if (tt.rows) tt.rows.forEach(r => addTTCRow(r));
   } else {
-    // 3 empty starter rows
+    rebuildTTCTable();
+    // Start with 3 empty rows
     addTTCRow(); addTTCRow(); addTTCRow();
   }
   openModal('modal-tt-create');
 }
 
 function rebuildTTCTable() {
-  const cols = _ttcCols.length ? _ttcCols : (document.getElementById('ttc-cols')?.value || '').split(',').map(c => c.trim()).filter(Boolean);
-  if (!cols.length) { toast('Add at least one column first', 'error'); return; }
-
+  const cols = (document.getElementById('ttc-cols')?.value || '').split(',').map(c => c.trim()).filter(Boolean);
+  if (!cols.length) { toast('Please enter column names', 'error'); return; }
   const wrap = document.getElementById('ttc-table-wrap');
-  // Save existing row values before rebuilding
   const existRows = wrap ? Array.from(wrap.querySelectorAll('tbody tr')).map(tr =>
     Array.from(tr.querySelectorAll('input')).map(i => i.value)) : [];
-
-  wrap.innerHTML = `<table class="tt-table">
-    <thead><tr>${cols.map(c => `<th>${escHtml(c)}</th>`).join('')}<th style="width:32px"></th></tr></thead>
+  wrap.innerHTML = `<table class="tt-table" style="width:100%;border-collapse:collapse">
+    <thead><tr style="background:rgba(240,192,64,0.12)">${cols.map(c => `<th style="padding:10px 12px;text-align:left;font-size:0.82rem;color:var(--accent);font-weight:600;border-bottom:1px solid var(--border)">${escHtml(c)}</th>`).join('')}<th style="width:36px;border-bottom:1px solid var(--border)"></th></tr></thead>
     <tbody></tbody></table>`;
   existRows.forEach(r => addTTCRow(r));
 }
 
 function addTTCRow(values = []) {
-  const cols  = _ttcCols.length ? _ttcCols : [];
+  const cols = (document.getElementById('ttc-cols')?.value || '').split(',').map(c => c.trim()).filter(Boolean);
   const tbody = document.querySelector('#ttc-table-wrap tbody');
   if (!tbody) { rebuildTTCTable(); return; }
   const tr = document.createElement('tr');
-  tr.innerHTML = cols.map((_, i) =>
-    `<td><input type="text" value="${escHtml(values[i] || '')}" placeholder="—"/></td>`
-  ).join('') + `<td style="text-align:center;padding:2px 4px">
-    <button type="button" onclick="this.closest('tr').remove()"
-      style="background:none;border:none;color:var(--text3);cursor:pointer;padding:5px;font-size:.8rem"
-      onmouseover="this.style.color='#e74c3c'" onmouseout="this.style.color='var(--text3)'">
-      <i class="fa fa-times"></i>
-    </button></td>`;
+  tr.style.cssText = 'border-bottom:1px solid var(--border);transition:background .15s';
+  tr.innerHTML = cols.map((_, i) => `<td style="padding:4px 6px"><input type="text" value="${escHtml(values[i] || '')}" placeholder="—" style="width:100%;background:transparent;border:none;border-radius:4px;padding:7px 8px;color:var(--text1);font-size:0.88rem;outline:none;box-sizing:border-box" onfocus="this.style.background='rgba(255,255,255,0.06)'" onblur="this.style.background='transparent'"/></td>`).join('')
+    + `<td style="padding:4px;text-align:center"><button type="button" onclick="this.closest('tr').remove()" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:4px 6px;border-radius:4px;font-size:0.85rem" onmouseover="this.style.color='#e74c3c'" onmouseout="this.style.color='var(--text3)'"><i class="fa fa-times"></i></button></td>`;
   tbody.appendChild(tr);
-  if (!values.length) setTimeout(() => { const f = tr.querySelector('input'); if(f) f.focus(); }, 50);
+  // Focus first empty cell
+  const firstInput = tr.querySelector('input');
+  if (firstInput && !values.length) setTimeout(() => firstInput.focus(), 50);
 }
 
-window.applyTTTemplate = function(templateKey) {
-  const t = TT_TEMPLATES[templateKey];
-  if (!t) return;
-  const nameEl = document.getElementById('ttc-name');
-  if (nameEl && !nameEl.value.trim()) nameEl.value = t.name;
-  // Set chips to template columns
-  initTTCChips(t.cols);
-  // Clear existing rows and add template rows
-  const wrap = document.getElementById('ttc-table-wrap');
-  if (wrap) wrap.innerHTML = '';
-  rebuildTTCTable();
-  t.rows.forEach(r => addTTCRow(r));
-  toast(`✅ "${t.name}" template applied — edit cells then save!`, 'success');
-};
+async function loadTimetables() {
+  const { data } = await db.from('timetables').select('*').eq('user_id',currentUserId).order('created_at',{ascending:false});
+  renderTimetables(data||[]);
+}
 
-window.generateAITimetable = async function() {
-  const prompt = (document.getElementById('ttc-ai-prompt')?.value || '').trim();
-  if (!prompt) { toast('Please describe what you want', 'error'); return; }
-  const btn = document.getElementById('ttc-ai-btn');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Building...'; }
+function renderTimetables(list) {
+  const grid  = document.getElementById('timetable-grid');
+  const empty = document.getElementById('tt-empty');
+  grid.innerHTML = '';
+  if (!list.length) { empty.style.display='block'; return; }
+  empty.style.display = 'none';
+  list.forEach(tt => {
+    const card = document.createElement('div');
+    card.className = 'tt-card';
+    card.innerHTML = `
+      <div class="tt-card-title">${escHtml(tt.tt_type)}</div>
+      <div class="tt-type-pill"><i class="fa fa-table"></i> Timetable</div>
+      <div class="tt-card-meta">${tt.rows?.length||0} rows · ${tt.columns?.length||0} columns</div>
+      <div class="tt-card-actions">
+        <button class="icon-btn" onclick="viewTimetable('${tt.id}')" type="button"><i class="fa fa-eye"></i> View</button>
+        <button class="icon-btn" onclick="shareTimetable('${tt.id}')" type="button"><i class="fa fa-share-alt"></i> Share</button>
+        <button class="icon-btn" onclick="editTimetable('${tt.id}')" type="button"><i class="fa fa-edit"></i> Edit</button>
+        <button class="icon-btn del" onclick="confirmDelete('timetable','${tt.id}','${escHtml(tt.tt_type)}')" type="button"><i class="fa fa-trash"></i></button>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
 
-  await new Promise(r => setTimeout(r, 1200));
-
-  const lower = prompt.toLowerCase();
-  let cols, rows, name;
-
-  if (lower.includes('school') || lower.includes('class') || lower.includes('lesson') || lower.includes('subject')) {
-    ({ cols, rows, name } = TT_TEMPLATES.school);
-    name = 'School Timetable (AI)';
-  } else if (lower.includes('work') || lower.includes('meeting') || lower.includes('office')) {
-    ({ cols, rows, name } = TT_TEMPLATES.work);
-    name = 'Work Schedule (AI)';
-  } else if (lower.includes('gym') || lower.includes('workout') || lower.includes('fitness') || lower.includes('exercise')) {
-    ({ cols, rows, name } = TT_TEMPLATES.gym);
-    name = 'Fitness Plan (AI)';
-  } else if (lower.includes('meal') || lower.includes('food') || lower.includes('diet') || lower.includes('eat')) {
-    ({ cols, rows, name } = TT_TEMPLATES.meal);
-    name = 'Meal Plan (AI)';
-  } else if (lower.includes('study') || lower.includes('revision') || lower.includes('exam')) {
-    ({ cols, rows, name } = TT_TEMPLATES.study);
-    name = 'Study Plan (AI)';
-  } else if (lower.includes('meeting') || lower.includes('agenda') || lower.includes('client')) {
-    ({ cols, rows, name } = TT_TEMPLATES.meeting);
-    name = 'Meetings Schedule (AI)';
-  } else {
-    cols = ['Day', 'Activity', 'Time', 'Notes'];
-    rows = [
-      ['Monday', 'Morning Routine', '06:00 - 07:00', 'Your custom schedule'],
-      ['Monday', 'Core Task', '09:00 - 12:00', 'Main work block'],
-      ['Tuesday', 'Morning Routine', '06:00 - 07:00', 'Your custom schedule'],
-      ['Tuesday', 'Core Task', '09:00 - 12:00', 'Main work block'],
-      ['Wednesday', 'Review', '10:00 - 12:00', 'Progress check'],
-      ['Thursday', 'Core Task', '09:00 - 12:00', 'Main work block'],
-      ['Friday', 'Weekly Wrap-up', '16:00 - 17:00', 'Review & plan ahead'],
-    ];
-    name = 'Custom Schedule (AI)';
-  }
-
-  const nameEl = document.getElementById('ttc-name');
-  if (nameEl && !nameEl.value.trim()) nameEl.value = name;
-  initTTCChips(cols);
-  const wrap = document.getElementById('ttc-table-wrap');
-  if (wrap) wrap.innerHTML = '';
-  rebuildTTCTable();
-  rows.forEach(r => addTTCRow(r));
-
-  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-wand-magic-sparkles"></i> Generate'; }
-  const promptEl = document.getElementById('ttc-ai-prompt');
-  if (promptEl) promptEl.value = '';
-  toast(`🤖 AI built "${name}" — review and edit, then save!`, 'success');
-};
-
-window.saveTimetableNew = async function() {
-  const name  = (document.getElementById('ttc-name')?.value || '').trim();
-  const cols  = _ttcCols.length ? _ttcCols : [];
-  const tbody = document.querySelector('#ttc-table-wrap tbody');
-  if (!name)        { toast('Please enter a timetable name', 'error'); return; }
-  if (!cols.length) { toast('Please add at least one column', 'error'); return; }
-  if (!tbody)       { toast('Please build the table first', 'error'); return; }
-  const rows = Array.from(tbody.querySelectorAll('tr'))
-    .map(tr => Array.from(tr.querySelectorAll('input')).map(i => i.value))
-    .filter(r => r.some(c => c.trim()));
-  if (!rows.length) { toast('Add at least one row of data', 'error'); return; }
-
-  const payload = { user_id: currentUserId, tt_type: name, columns: cols, rows };
-  let error;
-  if (ttcEditId) {
-    ({ error } = await db.from('timetables').update(payload).eq('id', ttcEditId).eq('user_id', currentUserId));
-  } else {
-    ({ error } = await db.from('timetables').insert(payload));
-  }
-  if (error) { toast('Error saving timetable: ' + error.message, 'error'); return; }
-  toast(ttcEditId ? '✅ Timetable updated!' : '✅ Timetable saved!', 'success');
-  closeModal('modal-tt-create');
-  ttcEditId = null;
-  _ttcCols = [];
-  loadTimetables();
-};
-
-// Legacy compat shims
-function goTTStep2()  { openTimetableModal(); }
-function backToTT1() { closeModal('modal-tt-create'); }
-function buildTTTable() { rebuildTTCTable(); }
-function addTTRow(v) { addTTCRow(v); }
-async function saveTimetable() { await saveTimetableNew(); }
+async function viewTimetable(id) {
+  const { data:tt } = await db.from('timetables').select('*').eq('id',id).single();
+  if (!tt) return;
+  document.getElementById('ttv-heading').innerHTML = `<i class="fa fa-calendar-alt" style="color:var(--accent)"></i> ${escHtml(tt.tt_type)}`;
+  document.getElementById('ttv-body').innerHTML = `<div class="tt-table-wrap">
+    <table class="tt-table">
+      <thead><tr>${tt.columns.map(c=>`<th>${escHtml(c)}</th>`).join('')}</tr></thead>
+      <tbody>${(tt.rows||[]).map(row=>`<tr>${row.map(c=>`<td>${escHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table></div>`;
+  openModal('modal-tt-view');
+}
 
 async function editTimetable(id) {
-  const { data: tt } = await db.from('timetables').select('*').eq('id', id).single();
+  const { data:tt } = await db.from('timetables').select('*').eq('id',id).single();
   if (!tt) return;
-  ttcEditId = id;
-  openTimetableModal(tt);
+  ttEditId = id;
+  document.getElementById('tt-type').value = tt.tt_type;
+  goTTStep2();
 }
 
 // ═══════════════════════════════════════════════════════════════
 //  FILE MANAGER
-
 // ═══════════════════════════════════════════════════════════════
 function openFolderModal(folder = null) {
   editingFolderId = folder ? folder.id : null;
@@ -2594,7 +2449,7 @@ function showPlanReminderNotification(plan, incomplete) {
       ? `Pending: ${incomplete.map(a=>a.text).join(', ')}`
       : `You have ${incomplete.length} pending activities.`;
     const notif = new Notification(`📋 ${plan.title} — Reminder`, {
-      body, icon:'./assets/images/logo.jpeg', tag:`plan-reminder-${plan.id}`, requireInteraction:false,
+      body, icon:'./WhatsApp Image 2026-04-07 at 20.53.13.jpeg', tag:`plan-reminder-${plan.id}`, requireInteraction:false,
     });
     notif.onclick = () => { window.focus(); showSection('plans'); notif.close(); };
     setTimeout(() => notif.close(), 8000);
@@ -2736,72 +2591,50 @@ window.startSubscription = function() {
     const splash = document.getElementById('splash-screen');
     if (splash) {
       splash.style.opacity = '0';
-      setTimeout(() => splash.remove(), 400);
+      setTimeout(() => splash.remove(), 500);
     }
   };
 
-  // 1. Detect OAuth redirect errors (e.g. #error=unauthorized_client or ?error=...)
-  const rawHash   = window.location.hash   || '';
-  const rawSearch = window.location.search || '';
-  const errParams = new URLSearchParams(
-    rawHash.startsWith('#') ? rawHash.substring(1) : rawSearch
-  );
-
-  if (errParams.has('error') || errParams.has('error_description')) {
-    const errCode = errParams.get('error') || '';
-    const errDesc = errParams.get('error_description') || errCode || 'Google sign-in failed';
-    const cleanDesc = decodeURIComponent(errDesc).replace(/\+/g, ' ');
-    console.error('[OAuth Redirect Error]:', errCode, cleanDesc);
-    showAuthMsg(`Google sign-in error: ${cleanDesc}`);
-    if (window.location.hash || window.location.search) {
-      history.replaceState(null, '', window.location.pathname);
-    }
-  }
-
-  // 2. Set up Auth State Change Listener FIRST
-  db.auth.onAuthStateChange(async (event, session) => {
-    console.log('[Auth Listener]', event, session?.user?.email);
-
-    if (
-      (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') &&
-      session?.user
-    ) {
-      if (!currentUser || currentUser.id !== session.user.id) {
-        closeAuthMsg();
-        await initApp(session.user);
-      }
-      // Clean URL hash/query parameters after OAuth login completes
-      if ((window.location.hash || '').includes('access_token') || (window.location.search || '').includes('code=')) {
-        history.replaceState(null, '', window.location.pathname);
-      }
-    }
-
-    if (event === 'SIGNED_OUT') {
-      currentUser = null; currentUserId = null; currentUserProfile = null;
-      document.getElementById('app').style.display = 'none';
-      document.getElementById('auth-screen').style.display = 'flex';
-      switchTab('login');
-    }
-  });
-
-  // 3. Perform initial session check
   try {
     const { data: { session } } = await db.auth.getSession();
     if (session?.user) {
+      document.getElementById('auth-screen').style.display = 'none';
       await initApp(session.user);
     } else {
-      document.getElementById('app').style.display = 'none';
       document.getElementById('auth-screen').style.display = 'flex';
     }
   } catch(e) {
     console.error('Session check failed:', e);
-    document.getElementById('app').style.display = 'none';
     document.getElementById('auth-screen').style.display = 'flex';
   } finally {
     hideSplash();
   }
 
+  db.auth.onAuthStateChange(async (event, session) => {
+    console.log('[Auth]', event, session?.user?.email);
 
+    // Handle all events that mean "user is logged in"
+    if (
+      (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') &&
+      session?.user &&
+      !currentUser
+    ) {
+      document.getElementById('auth-screen').style.display = 'none';
+      await initApp(session.user);
+
+      // Clean the URL hash after successful OAuth token pickup
+      const h = window.location.hash || '';
+      if (h.includes('access_token')) {
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+    }
+
+    if (event === 'SIGNED_OUT') {
+      currentUser = null;
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('auth-screen').style.display = 'flex';
+    }
+  });
 
   // Handle Capacitor deep links (when the app is opened via a custom URL scheme)
   if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
@@ -3190,7 +3023,7 @@ function completeFocusSession() {
   if ('Notification' in window && Notification.permission === 'granted') {
     const n = new Notification('⏰ Focus Session Complete!', {
       body: `Great job! You focused for ${formatFocusTime(secsAdded)}.`,
-      icon: './assets/images/logo.jpeg',
+      icon: './WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
       tag: 'focus-complete',
       requireInteraction: true,
     });
@@ -3753,7 +3586,7 @@ function scheduleStreakReminder() {
       if (Notification.permission === 'granted') {
         new Notification('🔥 Don\'t lose your streak!', {
           body: `You have a ${cs}-day streak! Open PlanTrack before midnight to keep it going.`,
-          icon: 'assets/images/logo.jpeg',
+          icon: 'WhatsApp Image 2026-04-07 at 20.53.13.jpeg',
           tag: 'streak-reminder'
         });
       }
@@ -3887,7 +3720,7 @@ async function checkSocialInteractions() {
           if ('Notification' in window && Notification.permission === 'granted') {
             new Notification('New Friend Request!', {
               body: `${senderName} wants to be your friend.`,
-              icon: 'assets/images/logo.jpeg'
+              icon: 'WhatsApp Image 2026-04-07 at 20.53.13.jpeg'
             });
           }
 

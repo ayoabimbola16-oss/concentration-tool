@@ -11,19 +11,17 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="PlanTrack"/>
-  <link rel="apple-touch-icon" href="assets/images/logo.jpeg"/>
+  <link rel="apple-touch-icon" href="WhatsApp Image 2026-04-07 at 20.53.13.jpeg"/>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
-
 </head>
-
 <body>
 
 <!-- ════════════ SPLASH SCREEN ════════════ -->
 <div id="splash-screen">
   <div class="splash-content">
     <div class="splash-logo">
-      <img src="assets/images/logo.jpeg" alt="Logo"/>
+      <img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" alt="Logo"/>
     </div>
     <div class="splash-text">PlanTrack</div>
     <div class="splash-loader"><span></span></div>
@@ -36,10 +34,8 @@
     <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
   </div>
   <div class="auth-box">
-    <a href="landing.html" style="text-decoration:none;color:inherit">
-      <div class="auth-logo"><img src="assets/images/logo.jpeg" class="logo-img" alt="Logo"/> PlanTrack</div>
-      <div class="auth-brand-line">CONCENTRATION TOOL</div>
-    </a>
+    <div class="auth-logo"><img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" class="logo-img" alt="Logo"/> PlanTrack</div>
+    <div class="auth-brand-line">CONCENTRATION TOOL</div>
     <p class="auth-welcome" id="auth-welcome-text">Welcome back — sign in to continue</p>
 
     <div class="auth-tabs" id="auth-tabs">
@@ -74,14 +70,8 @@
         <input type="email" id="r-email" placeholder="Your email address" inputmode="email"/></div>
       <div class="fg"><label>Password</label>
         <div class="pw-wrap">
-          <input type="password" id="r-pass" placeholder="Create a password (min 6 chars)"/>
+          <input type="password" id="r-pass" placeholder="Create a password"/>
           <button class="eye-btn" onclick="toggleEye('r-pass',this)" type="button"><i class="fa fa-eye"></i></button>
-        </div>
-      </div>
-      <div class="fg"><label>Confirm Password</label>
-        <div class="pw-wrap">
-          <input type="password" id="r-pass-confirm" placeholder="Repeat your password"/>
-          <button class="eye-btn" onclick="toggleEye('r-pass-confirm',this)" type="button"><i class="fa fa-eye"></i></button>
         </div>
       </div>
       <button class="auth-btn" onclick="register()" type="button"><i class="fa fa-user-plus"></i> Create Account</button>
@@ -102,11 +92,6 @@
     </div>
 
     <div id="auth-msg"></div>
-    <div style="text-align:center;margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.07)">
-      <a href="landing.html" style="color:var(--text3);font-size:0.8rem;text-decoration:none;display:inline-flex;align-items:center;gap:5px;transition:color .2s" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text3)'">
-        <i class="fa fa-arrow-left" style="font-size:0.72rem"></i> Back to Home
-      </a>
-    </div>
   </div>
 </div>
 
@@ -117,15 +102,9 @@
   <header class="topbar">
     <div class="tb-left">
       <button class="hamburger" onclick="toggleSidebar()" type="button"><i class="fa fa-bars"></i></button>
-      <div class="tb-logo"><img src="assets/images/logo.jpeg" class="tb-logo-img" alt="Logo"/> PlanTrack</div>
+      <div class="tb-logo"><img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" class="tb-logo-img" alt="Logo"/> PlanTrack</div>
     </div>
-      <div class="tb-right">
-      <a href="landing.html" title="View Landing Page" style="display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:20px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:var(--text2);font-size:0.77rem;font-weight:600;text-decoration:none;margin-right:8px;transition:all .2s" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text2)'">
-        <i class="fa fa-globe"></i><span class="logout-text"> Home</span>
-      </a>
-      <div class="pro-trial-chip" id="pro-trial-chip" onclick="openProModal()" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;background:linear-gradient(135deg,rgba(255,215,0,0.15),rgba(255,165,0,0.25));border:1px solid rgba(255,215,0,0.4);color:#ffd700;font-size:0.78rem;font-weight:600;cursor:pointer;margin-right:8px;" title="PlanTrack PRO Status">
-        <i class="fa fa-crown"></i><span id="pro-trial-text">7 Days Trial</span>
-      </div>
+    <div class="tb-right">
       <button class="profile-btn" onclick="showSection('profile')" type="button" title="My Profile">
         <div class="tb-avatar" id="topbar-avatar-display"></div>
         <span id="disp-user" class="profile-name"></span>
@@ -156,11 +135,7 @@
       </button>
       <button class="nav-btn" id="nav-focustimer" onclick="showSection('focustimer')" type="button">
         <i class="fa fa-hourglass-half"></i><span>Focus Timer</span>
-      </button>
-      <button class="nav-btn" id="nav-ai" onclick="openAICoPilot()" type="button">
-        <i class="fa fa-wand-magic-sparkles" style="color:#ffd700"></i><span style="color:#ffd700;font-weight:600">AI Co-Pilot</span>
-      </button>
-      <button class="nav-btn" id="nav-chats" onclick="showSection('chats')" type="button">
+      </button>      <button class="nav-btn" id="nav-chats" onclick="showSection('chats')" type="button">
         <i class="fa fa-comments"></i><span>Chats</span>
         <span class="chat-unread-badge" id="chat-unread-badge" style="display:none">0</span>
       </button>
@@ -656,9 +631,6 @@
                   <button class="chat-attach-btn" onclick="openSharePicker('file')" title="Attach File" type="button">
                     <i class="fa fa-paperclip"></i>
                   </button>
-                  <button class="chat-attach-btn" onclick="openSharePicker('idea')" title="Share Idea / Proposal" type="button" style="color:#9b59b6;">
-                    <i class="fa fa-lightbulb"></i>
-                  </button>
                 </div>
                 <div class="chat-input-wrap">
                   <input type="text" id="chat-input"
@@ -730,115 +702,55 @@
   </div>
 </div>
 
-<!-- UNIFIED SMART TIMETABLE CREATOR MODAL -->
-<div id="modal-tt-create" class="overlay" style="display:none">
-  <div class="modal modal-wide" style="max-width:680px">
-    <div class="mh" style="background:linear-gradient(135deg,rgba(240,192,64,0.15),rgba(52,152,219,0.1))">
-      <h2><i class="fa fa-calendar-alt" style="color:var(--accent)"></i> <span id="ttc-heading">Create Timetable</span></h2>
-      <button class="mclose" onclick="closeModal('modal-tt-create')" type="button"><i class="fa fa-times"></i></button>
+<!-- TIMETABLE MODAL STEP 1 -->
+<div id="modal-tt1" class="overlay" style="display:none">
+  <div class="modal modal-sm">
+    <div class="mh">
+      <h2><i class="fa fa-calendar-alt"></i> New Timetable</h2>
+      <button class="mclose" onclick="closeModal('modal-tt1')" type="button"><i class="fa fa-times"></i></button>
     </div>
-    <div class="mb" style="padding:20px">
-
-      <!-- Timetable Name -->
-      <div class="fg" style="margin-bottom:16px">
-        <label style="font-weight:600;color:var(--text1)">Timetable Name <span class="req">*</span></label>
-        <input type="text" id="ttc-name" placeholder="e.g. School Week, Work Schedule, Gym Routine..."
-          style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text1);font-size:0.95rem;width:100%;box-sizing:border-box"/>
-      </div>
-
-      <!-- Quick Template Cards -->
-      <div style="margin-bottom:18px">
-        <label style="font-size:0.83rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:block">⚡ Quick Templates — click to auto-fill</label>
-        <div style="display:flex;flex-wrap:wrap;gap:8px">
-          <button type="button" class="tt-template-btn" onclick="applyTTTemplate('school')" style="padding:8px 14px;border-radius:20px;border:1px solid rgba(52,152,219,0.5);background:rgba(52,152,219,0.1);color:#3498db;font-size:0.82rem;cursor:pointer">🏫 School</button>
-          <button type="button" class="tt-template-btn" onclick="applyTTTemplate('work')" style="padding:8px 14px;border-radius:20px;border:1px solid rgba(46,204,113,0.5);background:rgba(46,204,113,0.1);color:#2ecc71;font-size:0.82rem;cursor:pointer">💼 Work</button>
-          <button type="button" class="tt-template-btn" onclick="applyTTTemplate('study')" style="padding:8px 14px;border-radius:20px;border:1px solid rgba(155,89,182,0.5);background:rgba(155,89,182,0.1);color:#9b59b6;font-size:0.82rem;cursor:pointer">📚 Study</button>
-          <button type="button" class="tt-template-btn" onclick="applyTTTemplate('gym')" style="padding:8px 14px;border-radius:20px;border:1px solid rgba(231,76,60,0.5);background:rgba(231,76,60,0.1);color:#e74c3c;font-size:0.82rem;cursor:pointer">🏋️ Gym</button>
-          <button type="button" class="tt-template-btn" onclick="applyTTTemplate('meeting')" style="padding:8px 14px;border-radius:20px;border:1px solid rgba(230,126,34,0.5);background:rgba(230,126,34,0.1);color:#e67e22;font-size:0.82rem;cursor:pointer">📅 Meetings</button>
-          <button type="button" class="tt-template-btn" onclick="applyTTTemplate('meal')" style="padding:8px 14px;border-radius:20px;border:1px solid rgba(26,188,156,0.5);background:rgba(26,188,156,0.1);color:#1abc9c;font-size:0.82rem;cursor:pointer">🍽️ Meal Plan</button>
-        </div>
-      </div>
-
-      <!-- AI Generator -->
-      <div style="background:linear-gradient(135deg,rgba(155,89,182,0.08),rgba(52,152,219,0.06));border:1px solid rgba(155,89,182,0.3);border-radius:12px;padding:14px;margin-bottom:18px">
-        <label style="font-size:0.85rem;color:#9b59b6;font-weight:600;display:block;margin-bottom:8px"><i class="fa fa-robot"></i> 🤖 Let AI Generate Your Timetable</label>
-        <div style="display:flex;gap:8px">
-          <input type="text" id="ttc-ai-prompt"
-            placeholder="e.g. School week Mon-Fri: Maths 8am, English 10am, Science 12pm, break at 1pm..."
-            style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(155,89,182,0.4);border-radius:8px;padding:10px 12px;color:var(--text1);font-size:0.88rem"
-            onkeydown="if(event.key==='Enter'){event.preventDefault();generateAITimetable()}"/>
-          <button type="button" onclick="generateAITimetable()" id="ttc-ai-btn"
-            style="padding:10px 16px;background:linear-gradient(135deg,#9b59b6,#3498db);border:none;border-radius:8px;color:#fff;font-size:0.85rem;cursor:pointer;white-space:nowrap">
-            <i class="fa fa-wand-magic-sparkles"></i> Generate
+    <div class="mb">
+      <p class="question-text">What kind of timetable do you want to create?</p>
+      <div class="fg">
+        <label>Timetable Type / Name</label>
+        <div class="voice-row">
+          <input type="text" id="tt-type" placeholder="e.g. School Schedule, Workout Routine..."/>
+          <button class="voice-btn" onclick="startVoice('tt-type','tt-voice-status')" title="Speak" type="button">
+            <i class="fa fa-microphone"></i>
           </button>
         </div>
-        <p style="font-size:0.77rem;color:var(--text3);margin-top:6px">Describe what you want — the AI will build the full timetable for you instantly.</p>
+        <span class="voice-status" id="tt-voice-status"></span>
       </div>
-
-      <!-- Column Builder (Visual Chip System) -->
-      <div style="margin-bottom:14px">
-        <label style="font-size:0.83rem;color:var(--text2);font-weight:600;display:block;margin-bottom:10px">
-          <i class="fa fa-columns" style="color:var(--accent)"></i> &nbsp;Table Columns
-          <span style="font-weight:400;color:var(--text3);font-size:0.78rem;margin-left:6px">— drag chips to reorder, × to remove</span>
-        </label>
-
-        <!-- Column Chips Display -->
-        <div id="ttc-col-chips" style="display:flex;flex-wrap:wrap;gap:7px;min-height:42px;padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;align-items:center">
-          <!-- chips injected here by JS -->
-          <span id="ttc-chips-placeholder" style="color:var(--text3);font-size:0.83rem;font-style:italic">No columns yet — add from suggestions below or type a custom one</span>
-        </div>
-
-        <!-- Quick Suggestion Chips -->
-        <div style="margin-bottom:10px">
-          <div style="font-size:0.75rem;color:var(--text3);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em">⚡ Quick Add:</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px" id="ttc-suggestions">
-            <button type="button" onclick="addTTCCol('Day')" class="ttc-sugg-btn">📅 Day</button>
-            <button type="button" onclick="addTTCCol('Time')" class="ttc-sugg-btn">⏰ Time</button>
-            <button type="button" onclick="addTTCCol('Subject')" class="ttc-sugg-btn">📚 Subject</button>
-            <button type="button" onclick="addTTCCol('Topic')" class="ttc-sugg-btn">🔖 Topic</button>
-            <button type="button" onclick="addTTCCol('Room')" class="ttc-sugg-btn">🏫 Room</button>
-            <button type="button" onclick="addTTCCol('Venue')" class="ttc-sugg-btn">📍 Venue</button>
-            <button type="button" onclick="addTTCCol('Teacher')" class="ttc-sugg-btn">👨‍🏫 Teacher</button>
-            <button type="button" onclick="addTTCCol('Task')" class="ttc-sugg-btn">✅ Task</button>
-            <button type="button" onclick="addTTCCol('Priority')" class="ttc-sugg-btn">🔴 Priority</button>
-            <button type="button" onclick="addTTCCol('Notes')" class="ttc-sugg-btn">📝 Notes</button>
-            <button type="button" onclick="addTTCCol('Duration')" class="ttc-sugg-btn">⏱️ Duration</button>
-            <button type="button" onclick="addTTCCol('Location')" class="ttc-sugg-btn">📌 Location</button>
-            <button type="button" onclick="addTTCCol('Attendees')" class="ttc-sugg-btn">👥 Attendees</button>
-            <button type="button" onclick="addTTCCol('Status')" class="ttc-sugg-btn">🔄 Status</button>
-            <button type="button" onclick="addTTCCol('Exercise')" class="ttc-sugg-btn">🏋️ Exercise</button>
-            <button type="button" onclick="addTTCCol('Reps')" class="ttc-sugg-btn">🔁 Reps</button>
-            <button type="button" onclick="addTTCCol('Meal')" class="ttc-sugg-btn">🍽️ Meal</button>
-            <button type="button" onclick="addTTCCol('Calories')" class="ttc-sugg-btn">🔥 Calories</button>
-          </div>
-        </div>
-
-        <!-- Custom Column Input -->
-        <div style="display:flex;gap:8px;align-items:center">
-          <input type="text" id="ttc-col-custom-input" placeholder="Type a custom column name..."
-            onkeydown="if(event.key==='Enter'){event.preventDefault();addTTCColFromInput()}"
-            style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text1);font-size:0.88rem"/>
-          <button type="button" onclick="addTTCColFromInput()"
-            style="padding:9px 16px;background:rgba(240,192,64,0.2);border:1px solid rgba(240,192,64,0.5);border-radius:8px;color:var(--accent);font-size:0.85rem;cursor:pointer;white-space:nowrap;font-weight:600">
-            <i class="fa fa-plus"></i> Add
-          </button>
-          <button type="button" onclick="addTTCRow()"
-            style="padding:9px 14px;background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-size:0.85rem;cursor:pointer;white-space:nowrap">
-            <i class="fa fa-table-rows"></i> + Row
-          </button>
-        </div>
-
-        <!-- hidden synced input for compatibility -->
-        <input type="hidden" id="ttc-cols" value="Day,Subject,Time,Venue"/>
-      </div>
-
-      <!-- Table -->
-      <div id="ttc-table-wrap" style="border-radius:10px;overflow:hidden;border:1px solid var(--border);max-height:320px;overflow-y:auto"></div>
-
     </div>
     <div class="mf">
-      <button class="btn-cancel" onclick="closeModal('modal-tt-create')" type="button">Cancel</button>
-      <button class="btn-save" onclick="saveTimetableNew()" type="button"><i class="fa fa-save"></i> Save Timetable</button>
+      <button class="btn-cancel" onclick="closeModal('modal-tt1')" type="button">Cancel</button>
+      <button class="btn-save" onclick="goTTStep2()" type="button">Next <i class="fa fa-arrow-right"></i></button>
+    </div>
+  </div>
+</div>
+
+<!-- TIMETABLE MODAL STEP 2 -->
+<div id="modal-tt2" class="overlay" style="display:none">
+  <div class="modal modal-wide">
+    <div class="mh">
+      <h2 id="tt2-heading"></h2>
+      <button class="mclose" onclick="closeModal('modal-tt2')" type="button"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="mb">
+      <div class="tt-type-badge" id="tt-type-badge"></div>
+      <div class="tt-columns-row">
+        <div class="fg" style="flex:1">
+          <label>Column Headers (comma separated)</label>
+          <input type="text" id="tt-cols" placeholder="e.g. Day, Subject, Time, Room" value="Day,Subject,Time,Venue"/>
+        </div>
+        <button class="btn-outline-sm" onclick="buildTTTable()" type="button"><i class="fa fa-table"></i> Apply</button>
+      </div>
+      <div class="tt-table-wrap" id="tt-table-wrap"></div>
+      <button class="btn-outline-sm" style="margin-top:10px" onclick="addTTRow()" type="button"><i class="fa fa-plus"></i> Add Row</button>
+    </div>
+    <div class="mf">
+      <button class="btn-cancel" onclick="backToTT1()" type="button"><i class="fa fa-arrow-left"></i> Back</button>
+      <button class="btn-save" onclick="saveTimetable()" type="button"><i class="fa fa-save"></i> Save Timetable</button>
     </div>
   </div>
 </div>
@@ -1110,7 +1022,7 @@
 <div id="share-card-wrap" style="position:fixed; left:-9999px; top:-9999px;">
   <div id="share-card" class="share-card">
     <div class="sc-logo">
-      <img src="assets/images/logo.jpeg" alt="Logo"/>
+      <img src="WhatsApp Image 2026-04-07 at 20.53.13.jpeg" alt="Logo"/>
       <span>PlanTrack</span>
     </div>
     <div id="sc-content"></div>
@@ -1235,187 +1147,6 @@
   </div>
 </div>
 
-<!-- FLOATING AI CO-PILOT WIDGET -->
-<button class="ai-fab-btn" id="ai-fab-btn" onclick="openAICoPilot()" type="button" title="PlanTrack AI Activity Co-Pilot">
-  <i class="fa fa-wand-magic-sparkles"></i>
-  <span class="ai-fab-pulse"></span>
-</button>
-
-<!-- AI ACTIVITY CO-PILOT MODAL (ChatGPT-Style Conversational AI) -->
-<div id="modal-ai-copilot" class="overlay" style="display:none">
-  <div class="modal modal-wide" style="max-width:720px">
-    <div class="mh" style="background:linear-gradient(135deg,rgba(155,89,182,0.3),rgba(52,152,219,0.3))">
-      <h2><i class="fa fa-robot" style="color:#ffd700"></i> PlanTrack AI Co-Pilot</h2>
-      <button class="mclose" onclick="closeModal('modal-ai-copilot')" type="button"><i class="fa fa-times"></i></button>
-    </div>
-    <div class="mb">
-      <!-- Activity Context Summary Banner -->
-      <div id="ai-context-banner" class="ai-context-card" style="background:rgba(255,255,255,0.04);border-radius:12px;padding:12px 16px;border:1px solid rgba(255,255,255,0.08);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
-        <div style="font-size:0.85rem;color:var(--text);line-height:1.4">
-          <i class="fa fa-chart-line" style="color:var(--accent);margin-right:6px"></i>
-          <span id="ai-context-text">Analyzing your focus sessions, timetables, and plans...</span>
-        </div>
-        <button class="btn-outline-sm" onclick="askAICoPilot('generate_timetable')" type="button" style="font-size:0.75rem;padding:4px 10px;white-space:nowrap;flex-shrink:0"><i class="fa fa-wand-magic-sparkles"></i> Auto-Schedule</button>
-      </div>
-
-      <!-- ChatGPT-Style Multi-Turn Conversational Log Container -->
-      <div id="ai-chat-log" style="background:rgba(0,0,0,0.3);border-radius:12px;padding:16px;height:350px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;border:1px solid rgba(255,255,255,0.08);margin-bottom:14px">
-        <div class="ai-msg-row ai" style="display:flex;gap:10px;align-items:flex-start">
-          <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#9b59b6,#3498db);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1rem;flex-shrink:0"><i class="fa fa-robot"></i></div>
-          <div style="background:rgba(255,255,255,0.06);padding:12px 16px;border-radius:12px;max-width:85%;font-size:0.92rem;line-height:1.6;color:var(--text1)">
-            Hi! I'm your PlanTrack AI Co-Pilot. You can chat with me about anything — business strategy, project schedules, study routines, focus tips, or general advice!
-          </div>
-        </div>
-      </div>
-
-      <!-- Quick Suggestion Chips -->
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-        <button class="timer-chip" onclick="askAICoPilot('generate_timetable')" type="button"><i class="fa fa-calendar-plus"></i> Generate Schedule</button>
-        <button class="timer-chip" onclick="askAICoPilot('breakdown_tasks')" type="button"><i class="fa fa-list-check"></i> Task Breakdown</button>
-        <button class="timer-chip" onclick="askAICoPilot('reschedule_gaps')" type="button"><i class="fa fa-clock-rotate-left"></i> Reschedule Gaps</button>
-        <button class="timer-chip" onclick="askAICoPilot('focus_advice')" type="button"><i class="fa fa-brain"></i> Focus Advice</button>
-      </div>
-
-      <!-- AI Prompt Input -->
-      <div style="display:flex;gap:8px">
-        <input type="text" id="ai-prompt-input" placeholder="Ask AI anything (business, study, routines, general advice)..." style="flex:1;padding:12px 16px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:var(--text)" onkeydown="if(event.key==='Enter')submitCustomAIPrompt()"/>
-        <button class="btn-save" onclick="submitCustomAIPrompt()" type="button" style="padding:0 20px"><i class="fa fa-paper-plane"></i> Send</button>
-      </div>
-    </div>
-    <div class="mf" style="justify-content:space-between;align-items:center">
-      <div style="font-size:0.8rem;color:var(--text3)"><i class="fa fa-crown" style="color:#ffd700"></i> PlanTrack PRO Co-Pilot</div>
-      <button class="btn-cancel" onclick="closeModal('modal-ai-copilot')" type="button">Close</button>
-    </div>
-  </div>
-</div>
-
-<!-- INCOMING VOICE / VIDEO CALL RINGING MODAL -->
-<div id="modal-incoming-call" class="overlay" style="display:none;z-index:9999">
-  <div class="modal modal-sm" style="text-align:center;padding:28px 20px;max-width:380px;background:#0d0d10;border:1px solid rgba(240,192,64,0.4);border-radius:20px;box-shadow:0 0 40px rgba(240,192,64,0.3)">
-    <div style="position:relative;width:90px;height:90px;margin:0 auto 16px auto">
-      <div id="inc-call-avatar" style="width:90px;height:90px;border-radius:50%;background:var(--accent);color:#000;font-size:2.2rem;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 30px rgba(240,192,64,0.4)">U</div>
-      <div class="call-pulse-ring" style="position:absolute;inset:-8px;border-radius:50%;border:2px solid var(--accent);animation:callPulse 1.2s infinite"></div>
-    </div>
-
-    <h3 id="inc-call-user-name" style="font-size:1.3rem;margin-bottom:4px;color:var(--text1)">Friend Name</h3>
-    <p id="inc-call-type-text" style="font-size:0.9rem;color:var(--accent);margin-bottom:24px"><i class="fa fa-phone-volume fa-spin"></i> Incoming Video Call...</p>
-
-    <!-- Ringing Action Buttons -->
-    <div style="display:flex;justify-content:center;align-items:center;gap:24px">
-      <button onclick="declineIncomingCall()" type="button" title="Decline Call" style="width:60px;height:60px;border-radius:50%;background:#e74c3c;border:none;color:#fff;font-size:1.4rem;cursor:pointer;box-shadow:0 6px 20px rgba(231,76,60,0.5);display:flex;align-items:center;justify-content:center">
-        <i class="fa fa-phone-slash"></i>
-      </button>
-      <button onclick="acceptIncomingCall()" type="button" title="Accept Call" style="width:64px;height:64px;border-radius:50%;background:#2ecc71;border:none;color:#fff;font-size:1.6rem;cursor:pointer;box-shadow:0 6px 25px rgba(46,204,113,0.6);display:flex;align-items:center;justify-content:center">
-        <i class="fa fa-phone"></i>
-      </button>
-    </div>
-  </div>
-</div>
-
-<!-- ACTIVE VOICE / VIDEO CALL MODAL -->
-<div id="modal-active-call" class="overlay" style="display:none">
-  <div class="modal modal-sm" style="text-align:center;padding:24px 20px;max-width:440px;background:#0d0d10;border:1px solid rgba(255,255,255,0.12);border-radius:18px">
-    
-    <!-- Real-time Video Stream Container (Mirrored Front Camera) -->
-    <video id="local-video-stream" autoplay playsinline muted style="width:100%;height:230px;border-radius:14px;background:#000;object-fit:cover;transform:scaleX(-1);display:none;margin-bottom:16px;border:1px solid rgba(255,255,255,0.15);box-shadow:0 8px 25px rgba(0,0,0,0.5)"></video>
-
-    <!-- Avatar for Voice Calls or Video Loading -->
-    <div id="call-avatar-wrap" style="position:relative;width:90px;height:90px;margin:0 auto 16px auto">
-      <div id="call-avatar" style="width:90px;height:90px;border-radius:50%;background:var(--accent);color:#000;font-size:2.2rem;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 30px rgba(240,192,64,0.35)">U</div>
-      <div class="call-pulse-ring" style="position:absolute;inset:-8px;border-radius:50%;border:2px solid var(--accent);animation:callPulse 1.8s infinite"></div>
-    </div>
-
-    <h3 id="call-user-name" style="font-size:1.3rem;margin-bottom:6px;color:var(--text1)">Friend Name</h3>
-    <p id="call-status-text" style="font-size:0.88rem;color:var(--accent);margin-bottom:24px"><i class="fa fa-phone-volume fa-spin"></i> Calling...</p>
-
-    <!-- Call Controls -->
-    <div style="display:flex;justify-content:center;align-items:center;gap:20px">
-      <button class="call-control-btn" id="call-mute-btn" onclick="toggleCallMute()" type="button" title="Mute Microphone" style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:1.2rem;cursor:pointer"><i class="fa fa-microphone"></i></button>
-      <button class="call-control-btn hangup" onclick="endCall()" type="button" title="End Call" style="width:60px;height:60px;border-radius:50%;background:#e74c3c;border:none;color:#fff;font-size:1.4rem;cursor:pointer;box-shadow:0 6px 20px rgba(231,76,60,0.5)"><i class="fa fa-phone-slash"></i></button>
-      <button class="call-control-btn" id="call-video-btn" onclick="toggleCallVideo()" type="button" title="Toggle Camera" style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:1.2rem;cursor:pointer"><i class="fa fa-video"></i></button>
-    </div>
-  </div>
-</div>
-
-<!-- IDEA / BUSINESS PROPOSAL COMPOSE MODAL -->
-<div id="modal-idea-compose" class="overlay" style="display:none">
-  <div class="modal" style="max-width:520px">
-    <div class="mh" style="background:linear-gradient(135deg,rgba(155,89,182,0.25),rgba(52,152,219,0.2))">
-      <h2><i class="fa fa-lightbulb" style="color:#9b59b6"></i> Share Idea / Business Proposal</h2>
-      <button class="mclose" onclick="closeModal('modal-idea-compose')" type="button"><i class="fa fa-times"></i></button>
-    </div>
-    <div class="mb" style="padding:20px">
-      <p style="font-size:0.88rem;color:var(--text3);margin-bottom:14px">Share your business idea, plan, or proposal with this contact. You can also attach an image or document.</p>
-      <textarea id="idea-compose-text" rows="6"
-        placeholder="Type your business idea, proposal, or message here...&#10;&#10;E.g: I'd like to propose we expand our marketing budget by 20% in Q3 to target the student demographic..."
-        style="width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:10px;padding:14px;color:var(--text1);font-size:0.93rem;resize:vertical;line-height:1.7;font-family:inherit;box-sizing:border-box;"></textarea>
-
-      <div style="margin-top:14px">
-        <label style="font-size:0.85rem;color:var(--text2);display:block;margin-bottom:8px"><i class="fa fa-image" style="color:#9b59b6"></i> Attach Image (optional)</label>
-        <input type="file" id="idea-image-input" accept="image/*"
-          onchange="const f=this.files[0]; if(f){const r=new FileReader();r.onload=e=>{document.getElementById('idea-image-preview').innerHTML='<img src=\''+e.target.result+'\' style=\'max-width:100%;max-height:160px;border-radius:8px;margin-top:10px;\'>';};r.readAsDataURL(f);}"
-          style="display:block;font-size:0.85rem;color:var(--text2);background:rgba(155,89,182,0.08);border:1px dashed rgba(155,89,182,0.4);border-radius:8px;padding:10px;cursor:pointer;width:100%;box-sizing:border-box;"/>
-        <div id="idea-image-preview" style="margin-top:8px"></div>
-      </div>
-
-      <div style="display:flex;gap:12px;margin-top:20px">
-        <button type="button" onclick="closeModal('modal-idea-compose')" class="btn-cancel" style="flex:1">Cancel</button>
-        <button type="button" id="idea-send-btn" onclick="sendIdeaProposal()" class="btn-save" style="flex:2;justify-content:center">
-          <i class="fa fa-paper-plane"></i> Send Proposal
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- PLANTRACK PRO SUBSCRIPTION MODAL -->
-<div id="modal-pro-pricing" class="overlay" style="display:none">
-  <div class="modal modal-wide" style="max-width:600px">
-    <div class="mh" style="background:linear-gradient(135deg,rgba(255,215,0,0.25),rgba(230,126,34,0.2))">
-      <h2><i class="fa fa-crown" style="color:#ffd700"></i> PlanTrack PRO</h2>
-      <button class="mclose" onclick="closeModal('modal-pro-pricing')" type="button"><i class="fa fa-times"></i></button>
-    </div>
-    <div class="mb" style="text-align:center;padding:24px 16px">
-      <div class="pro-badge-header" style="display:inline-block;padding:6px 16px;border-radius:20px;background:rgba(255,215,0,0.15);border:1px solid rgba(255,215,0,0.4);color:#ffd700;font-weight:700;font-size:0.85rem;margin-bottom:12px">
-        ✨ 7 DAYS FREE UNLIMITED TRIAL FOR NEW ACCOUNTS
-      </div>
-      <h2 style="font-size:1.8rem;margin-bottom:8px;font-family:'Playfair Display',serif">Unlock Your Superpowers</h2>
-      <p style="color:var(--text2);max-width:440px;margin:0 auto 24px auto;font-size:0.95rem">Empower your deep work, auto-schedule tasks, and beat distractions with PlanTrack PRO.</p>
-
-      <!-- Pricing Options Cards -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
-        <div class="pricing-card" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:20px;text-align:center;position:relative;cursor:pointer" onclick="selectPricingTier('monthly')">
-          <div style="font-size:0.85rem;color:var(--text3);font-weight:600">MONTHLY</div>
-          <div style="font-size:2rem;font-weight:700;color:var(--accent);margin:8px 0">$0.50<span style="font-size:0.85rem;color:var(--text3)">/mo</span></div>
-          <p style="font-size:0.78rem;color:var(--text2);margin:0">Billed monthly after 7-day trial</p>
-        </div>
-
-        <div class="pricing-card active-plan" style="background:linear-gradient(135deg,rgba(255,215,0,0.12),rgba(255,140,0,0.08));border:2px solid #ffd700;border-radius:14px;padding:20px;text-align:center;position:relative;cursor:pointer" onclick="selectPricingTier('yearly')">
-          <div style="position:absolute;top:-10px;right:10px;background:#ffd700;color:#000;font-size:0.7rem;font-weight:800;padding:2px 8px;border-radius:10px">BEST VALUE</div>
-          <div style="font-size:0.85rem;color:#ffd700;font-weight:600">ANNUAL</div>
-          <div style="font-size:2rem;font-weight:700;color:#ffd700;margin:8px 0">$5.00<span style="font-size:0.85rem;color:var(--text3)">/yr</span></div>
-          <p style="font-size:0.78rem;color:var(--text2);margin:0">Save 17% • Just $0.41/month</p>
-        </div>
-      </div>
-
-      <!-- Included Features List -->
-      <div style="text-align:left;background:rgba(255,255,255,0.02);border-radius:12px;padding:16px;margin-bottom:24px">
-        <div style="font-size:0.85rem;font-weight:700;color:var(--accent);margin-bottom:10px"><i class="fa fa-star"></i> Included in PlanTrack PRO:</div>
-        <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;font-size:0.88rem;color:var(--text)">
-          <li><i class="fa fa-check" style="color:#2ecc71;margin-right:8px"></i> 🤖 <strong>Context-Aware Activity AI Co-Pilot</strong> (Auto-Schedule & Task Decomposer)</li>
-          <li><i class="fa fa-check" style="color:#2ecc71;margin-right:8px"></i> 🎧 <strong>Neural Soundscapes</strong> (Binaural Beats, Rain, Brown Noise)</li>
-          <li><i class="fa fa-check" style="color:#2ecc71;margin-right:8px"></i> 📊 <strong>Advanced Focus Analytics & Heatmaps</strong></li>
-          <li><i class="fa fa-check" style="color:#2ecc71;margin-right:8px"></i> 🛡️ <strong>Streak Recovery Shield</strong> (Protect your hard-earned streak)</li>
-        </ul>
-      </div>
-
-      <button class="btn-save" onclick="activateProSubscription()" type="button" style="width:100%;justify-content:center;padding:14px;font-size:1.05rem;border-radius:12px;background:linear-gradient(135deg,#f39c12,#e67e22)">
-        <i class="fa fa-crown"></i> Activate PRO Access ($0.50/mo)
-      </button>
-    </div>
-  </div>
-</div>
-
 <!-- TOAST -->
 <div id="toast" class="toast"></div>
 
@@ -1425,5 +1156,6 @@
 <script src="alarm-service.js?v=16"></script>
 <script src="offline.js?v=16"></script>
 <script src="app.js?v=16"></script>
+<script src="ai-copilot.js?v=1"></script>
 </body>
 </html>
