@@ -105,13 +105,16 @@
       width: 38px;
       height: 38px;
       border-radius: 10px;
-      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #000;
-      font-size: 1.1rem;
-      box-shadow: 0 0 15px var(--accent-glow);
+      overflow: hidden;
+    }
+
+    .logo-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
     }
 
     .nav-links {
@@ -564,7 +567,7 @@
     // Lets index.html know the visitor intentionally entered from this page.
     document.addEventListener('DOMContentLoaded', function () {
       document.querySelectorAll('a[href="index.html"]').forEach(function (link) {
-        link.addEventListener('click', function () { sessionStorage.setItem('pt_landing_seen', '1'); });
+        link.href = 'index.html?from=landing';
       });
     });
   </script>
@@ -579,7 +582,7 @@
   <header>
     <div class="nav-container">
       <a href="landing.html" class="logo-brand">
-        <div class="logo-icon"><i class="fa fa-bolt"></i></div>
+        <div class="logo-icon"><img src="plantrack_icon.png" alt="PlanTrack logo"/></div>
         <span>PlanTrack</span>
       </a>
       <ul class="nav-links">

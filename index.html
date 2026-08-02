@@ -19,7 +19,9 @@
     // so Supabase can complete sign-in safely.
     (function () {
       var callback = /access_token|refresh_token|code=/.test(location.hash + location.search);
-      if (!callback && sessionStorage.getItem('pt_landing_seen') !== '1') location.replace('landing.html');
+      var fromLanding = new URLSearchParams(location.search).get('from') === 'landing';
+      if (!callback && !fromLanding) location.replace('landing.html');
+      if (fromLanding) history.replaceState(null, '', location.pathname + location.hash);
     })();
   </script>
 </head>
